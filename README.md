@@ -6,7 +6,7 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. Public GitHub repository inspection, GitHub account sign-in, and an authenticated local upload-storage endpoint are implemented. Database-backed project ownership, account-scoped authorization, object storage, builds, and production infrastructure are not yet configured.
+Early development. Public GitHub repository inspection, GitHub account sign-in, and an authenticated local upload-storage endpoint are implemented. Database-backed project ownership and account-scoped project APIs are implemented; account-scoped static GitHub deployment and history endpoints are in progress. Supabase and Cloudflare credentials must still be configured before live use.
 
 ## Current GitHub import preview
 
@@ -75,6 +75,17 @@ curl -X POST "http://localhost:3000/api/github/deploy" \
 The endpoint downloads the GitHub ZIP archive from GitHub's fixed API host, enforces a 25 MiB download limit, applies the same safe ZIP extraction policy as uploads, requires a root `index.html`, checks static asset limits and blocked secret/config paths, then deploys through the configured Cloudflare Pages project. It returns the deployment URL.
 
 **Current scope:** public repositories and static HTML/CSS/JS only. Private repositories, framework build commands, per-user project ownership, and automatic redeployment on Git pushes are not yet supported. DEPLO does not execute repository scripts.
+
+## Account-owned GitHub project deployments
+
+When a user is signed in and Supabase plus Cloudflare Pages are configured, DEPLO can deploy a saved public GitHub project through its account-owned project record:
+
+- `POST /api/projects/{projectId}/deploy` verifies the signed GitHub session, looks up the project using both its UUID and the session's GitHub account ID, downloads the saved public repository branch, safely extracts it, checks static assets, and publishes it to the configured Cloudflare Pages project.
+- Each project uses a dedicated Pages preview branch named `site-{project-slug}`.
+- After a successful publish, DEPLO saves the deployment URL and update timestamp to that same account-owned project record.
+- `GET /api/deploy/history?projectId={projectId}` verifies ownership before returning Cloudflare deployment history for that project's Pages branch.
+
+These endpoints support public GitHub repositories with a root `index.html` only. They do not execute repository scripts or build framework applications. Private GitHub repository access, Git push auto-deploys, deployment cancellation, live build logs, and deployment rollback are not included. The shared upload-token endpoints remain separate legacy upload flows and are not substitutes for account-owned authorization.
 
 ## Cloudflare Pages static deployment (early milestone)
 

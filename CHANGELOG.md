@@ -5,6 +5,10 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Account-scoped GitHub project deployment endpoint that verifies project ownership from the signed-in GitHub session before publishing.
+- Account-scoped Cloudflare Pages deployment history filtered to the saved project's deployment branch.
+- Persist deployment URLs and update timestamps back to the owning project's database record.
+- Tests covering project lookup and deployment updates constrained by both project ID and account owner ID.
 - Supabase Postgres project metadata storage with account-scoped list/create API routes and owner IDs derived only from verified GitHub sessions.
 - Dashboard project list loads saved account projects and persists imported public GitHub repository metadata when signed in.
 - Initial SQL migration with per-account slug uniqueness and row-level security enabled.
@@ -39,5 +43,5 @@ All notable changes to DEPLO are documented here.
 
 ### Notes
 - Static deployment endpoints require Cloudflare Pages credentials and a configured Pages project on the server; readiness checks verify presence and format, not provider-side validity.
-- The GitHub integration currently supports public repositories with a root `index.html`; private repository OAuth, framework build execution, per-user project ownership, and automatic push redeploys are not connected.
+- The GitHub deployment integration supports public repositories with a root `index.html`; it does not execute framework build scripts or support private repositories or automatic push redeploys. Account-owned deploy routes require a valid GitHub session and configured Supabase/Cloudflare credentials.
 - Uploads use local filesystem storage and a shared server-side bearer token; production multi-user hosting still needs durable object storage, account-level authorization, quotas, cleanup, and isolated build infrastructure.
