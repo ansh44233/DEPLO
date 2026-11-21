@@ -118,7 +118,7 @@ async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
   const expired = new Set<string>();
   let bytesFreed = 0;
   for (const entry of entries) {
-    if (!entry.isFile() || !/^src_[a-f0-9]{48}\\.zip$/.test(entry.name)) continue;
+    if (!entry.isFile() || !/^src_[a-f0-9]{48}\.zip$/.test(entry.name)) continue;
     if (expired.size >= CLEANUP_BATCH_LIMIT) break;
     const path = join(dataDir, entry.name);
     let info;
@@ -131,7 +131,7 @@ async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
   let recordsRemoved = 0;
   if (expired.size) {
     for (const entry of entries) {
-      if (!entry.isFile() || !/^idem-[a-f0-9]{64}\\.json$/.test(entry.name)) continue;
+      if (!entry.isFile() || !/^idem-[a-f0-9]{64}\.json$/.test(entry.name)) continue;
       const path = join(dataDir, entry.name);
       try {
         const record = JSON.parse(await readFile(path, "utf8")) as { sourceId?: unknown };
@@ -146,7 +146,7 @@ async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
   }
   return { sourcesRemoved: expired.size, recordsRemoved, bytesFreed };
 }
-\nexport function createRunnerServer(config: RunnerConfig) {
+export function createRunnerServer(config: RunnerConfig) {
   if (config.token.length < 32) throw new Error("Runner token must contain at least 32 characters.");
   if (!isAbsolute(config.dataDir)) throw new Error("Runner data directory must be absolute.");
   config = { ...config, dataDir: resolve(config.dataDir) };
