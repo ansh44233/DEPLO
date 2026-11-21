@@ -28,7 +28,7 @@ function makeZip(): Promise<Buffer> {
 function artifactFetcher(archive: Buffer, capture?: (url: string, init?: RequestInit) => void): typeof fetch {
   return async (url, init) => {
     capture?.(String(url), init);
-    return new Response(archive, { headers: { "Content-Type": "application/zip", "Content-Length": String(archive.byteLength) } });
+    return new Response(new Uint8Array(archive), { headers: { "Content-Type": "application/zip", "Content-Length": String(archive.byteLength) } });
   };
 }
 
