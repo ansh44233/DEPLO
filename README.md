@@ -33,9 +33,9 @@ An authenticated `POST /api/uploads` endpoint accepts multipart form uploads and
 Example:
 
 ```bash
-curl -X POST http://localhost:3000/api/uploads \\
-  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \\
-  -F "kind=html" \\
+curl -X POST http://localhost:3000/api/uploads \
+  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
+  -F "kind=html" \
   -F "file=@index.html"
 ```
 
