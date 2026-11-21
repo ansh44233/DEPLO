@@ -11,3 +11,6 @@ coverage/
 .DS_Store
 .vercel/
 *.tsbuildinfo
+
+# Private local upload storage
+.deplo-uploads/
