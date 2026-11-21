@@ -201,6 +201,7 @@ export function createRunnerServer(config: RunnerConfig) {
     }
   });
   server.maxHeadersCount = 50;
+  server.maxRequestsPerSocket = 100;
   return server;
 }
 
