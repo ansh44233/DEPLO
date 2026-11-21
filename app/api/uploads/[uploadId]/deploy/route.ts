@@ -68,7 +68,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     try {
-      await stat(join(outputDirectory, "index.html"));
+      const indexFile = await stat(join(outputDirectory, "index.html"));
+      if (!indexFile.isFile()) return jsonError("The site must contain a regular index.html file at its root.", 422);
     } catch {
       return jsonError("The site must contain an index.html file at its root.", 422);
     }
