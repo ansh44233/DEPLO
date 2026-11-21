@@ -51,8 +51,7 @@ export async function POST(request: NextRequest) {
     return jsonError("The selected file does not have a valid ZIP signature.", 400);
   }
   if (kind === "html") {
-    const html = new TextDecoder().decode(bytes);
-    if (!/<html[\s>]/i.test(html) && !/<!doctype\s+html/i.test(html)) {
+    if (!hasHtmlDocument(bytes)) {
       return jsonError("The file must contain a complete HTML document.", 400);
     }
   }
