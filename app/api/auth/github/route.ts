@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function getCallbackUrl(request: NextRequest): string | null {
+function getCallbackUrl(): string | null {
   const configuredBase = process.env.DEPLO_BASE_URL;
   if (!configuredBase) return null;
   try {
@@ -18,7 +18,7 @@ function getCallbackUrl(request: NextRequest): string | null {
 
 export async function GET(request: NextRequest) {
   const clientId = process.env.GITHUB_CLIENT_ID;
-  const callbackUrl = getCallbackUrl(request);
+  const callbackUrl = getCallbackUrl();
   if (!clientId || !process.env.GITHUB_CLIENT_SECRET || !callbackUrl || (process.env.DEPLO_SESSION_SECRET?.length ?? 0) < 32) {
     return NextResponse.json(
       { error: "GitHub sign-in is not configured. Set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, DEPLO_SESSION_SECRET, and DEPLO_BASE_URL." },
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   const authorizationUrl = new URL("https://github.com/login/oauth/authorize");
   authorizationUrl.searchParams.set("client_id", clientId);
   authorizationUrl.searchParams.set("redirect_uri", callbackUrl);
-  authorizationUrl.searchParams.set("scope", "read:user user:email");
+  authorizationUrl.searchParams.set("scope", "read:user");
   authorizationUrl.searchParams.set("state", state);
 
   const response = NextResponse.redirect(authorizationUrl);
