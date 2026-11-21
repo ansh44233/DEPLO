@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const config = readCloudflarePagesCredentials();
   if (!config) return jsonError("Cloudflare Pages deployment is not configured on the server.", 503);
-  let pagesTarget;
+  let pagesTarget: ReturnType<typeof getAccountPagesTarget>;
   try {
     pagesTarget = getAccountPagesTarget(config, user.id, project.slug);
   } catch {
