@@ -36,7 +36,14 @@ function finish(request: NextRequest, result: "error" | "success", sessionToken?
     path: "/api/auth/github/callback",
     maxAge: 0,
   });
-  response.cookies.set("deplo_github_token", encryptedGitHubToken ?? "", {\n    httpOnly: true,\n    secure: process.env.NODE_ENV === "production",\n    sameSite: "lax",\n    path: "/",\n    maxAge: encryptedGitHubToken ? 60 * 60 * 24 * 7 : 0,\n  });\n  if (sessionToken) {
+  response.cookies.set("deplo_github_token", encryptedGitHubToken ?? "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: encryptedGitHubToken ? 60 * 60 * 24 * 7 : 0,
+  });
+  if (sessionToken) {
     response.cookies.set("deplo_session", sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
