@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import {
   Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
   ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
@@ -50,6 +51,7 @@ export default function Home() {
   const [projects, setProjects] = useState(initialProjects);
   const [notice, setNotice] = useState("");
   const [fileName, setFileName] = useState("");
+  const [uploadError, setUploadError] = useState("");
 
   const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
   const filteredProjects = useMemo(
@@ -84,10 +86,35 @@ export default function Home() {
     setModal(null);
   }
 
-  function startUpload(file: File | undefined) {
+  async function startUpload(file: File | undefined, kind: "zip" | "html") {
     if (!file) return;
+    setUploadError("");
+    const validationError = validateUploadSelection(file.name, file.size, kind);
+    if (validationError) {
+      setUploadError(validationError);
+      setFileName("");
+      return;
+    }
+
+    if (kind === "zip") {
+      const signature = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+      if (!hasZipSignature(signature)) {
+        setUploadError("This file does not look like a valid ZIP archive.");
+        setFileName("");
+        return;
+      }
+    } else {
+      const html = await file.text();
+      if (!/<html[\\s>]/i.test(html) && !/<!doctype\\s+html/i.test(html)) {
+        setUploadError("The file should contain a complete HTML document.");
+        setFileName("");
+        return;
+      }
+    }
+
     setFileName(file.name);
-    setNotice(`${file.name} selected. Connect a deployment provider to publish it.`);
+    setUploadError("");
+    setNotice(`${file.name} passed local file checks. It has not been uploaded or deployed yet.`);
   }
 
   return (
@@ -263,7 +290,7 @@ export default function Home() {
               <button className="primary-button repo-confirm" onClick={addRepositoryPreview}>Add repository to dashboard <ArrowUpRight size={15} /></button>
               <p className="repo-help">This adds a preview entry only. Build execution, automatic deployments, and persistent account storage are upcoming steps.</p>
             </div>}
-          </div> : <div className="upload-zone"><input type="file" accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => startUpload(event.target.files?.[0])} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP files up to your configured upload limit" : "A standalone HTML file"}</span><button className="primary-button" onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}><ArrowDownToLine size={16} /> Browse files</button></div>}
+          </div> : <div className="upload-zone"><input type="file" accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => void startUpload(event.target.files?.[0], modal === "upload" ? "zip" : "html")} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP archive · maximum 25 MB" : "HTML document · maximum 2 MB"}</span>{uploadError && <p className="repo-error" role="alert">{uploadError}</p>}<button className="primary-button" onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}><ArrowDownToLine size={16} /> Browse files</button></div>}
           <div className="modal-foot"><ShieldCheck size={14} /> Your code stays yours. Provider connections are not configured yet.</div>
         </div>
       </div>}
