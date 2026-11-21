@@ -20,6 +20,15 @@ This is an early integration milestone, not a production deployment pipeline:
 
 The inspection endpoint is `GET /api/github/repository?url=<public-repository-url>`.
 
+## Upload preflight (early milestone)
+
+The browser now checks selected ZIP and standalone HTML files before proceeding:
+- ZIP archives: `.zip` extension, ZIP signature, and a 25 MB maximum.
+- HTML documents: `.html`/`.htm` extension, complete-document marker, and a 2 MB maximum.
+- Invalid selections are rejected with an inline message.
+
+These are client-side preflight checks only. Files are not uploaded, stored, extracted, built, or deployed yet. ZIP contents still require server-side archive inspection and safe extraction before production use.
+
 ## Planned capabilities
 
 - GitHub repository import
