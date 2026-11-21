@@ -33,6 +33,8 @@ type CloudflareDeployment = {
   status: "success" | "failure" | "building" | "unknown";
 };
 
+type SignedInUser = { id: number; login: string; name: string | null; avatarUrl: string | null };
+
 type Project = {
   name: string;
   domain: string;
@@ -71,6 +73,8 @@ export default function Home() {
   const [cloudflareDeployments, setCloudflareDeployments] = useState<CloudflareDeployment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
+  const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +107,36 @@ export default function Home() {
   useEffect(() => {
     void refreshDeploymentHistory();
   }, [refreshDeploymentHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not check sign-in status.");
+        return response.json() as Promise<{ authenticated: boolean; user: SignedInUser | null }>;
+      })
+      .then((data) => { if (!cancelled) setSignedInUser(data.authenticated ? data.user : null); })
+      .catch(() => { if (!cancelled) setSignedInUser(null); })
+      .finally(() => { if (!cancelled) setAuthLoading(false); });
+    const authResult = new URLSearchParams(window.location.search).get("auth");
+    if (authResult === "success") setNotice("Signed in with GitHub. Account-owned projects are not enabled yet.");
+    if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
+    if (authResult) window.history.replaceState({}, "", window.location.pathname);
+    return () => { cancelled = true; };
+  }, []);
+
+  async function signOut() {
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Sign-out failed.");
+      setSignedInUser(null);
+      setNotice("You have signed out of DEPLO.");
+    } catch {
+      setNotice("Could not sign out. Please try again.");
+    }
+  }
+
+
 
   const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
   const displayDeployments = cloudflareDeployments.map((deployment) => ({
@@ -239,7 +273,7 @@ export default function Home() {
             <div className="status-pill preview-pill"><span className="status-dot preview-dot" /> Preview environment</div>
             <button className="icon-button" aria-label="Search" onClick={() => document.getElementById("project-search")?.focus()}><Search size={17} /></button>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={17} /><i /></button>
-            <div className="top-avatar">A</div>
+            {authLoading ? <span className="top-avatar">…</span> : signedInUser ? <button className="text-button" onClick={() => void signOut()} title={signedInUser.login}>Sign out</button> : <a className="text-button" href="/api/auth/github"><Github size={14} /> Sign in with GitHub</a>}
           </div>
         </header>
 
