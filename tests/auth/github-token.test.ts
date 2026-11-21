@@ -23,7 +23,7 @@ test("uses a fresh nonce for every encryption", () => {
 test("rejects tampered ciphertext and the wrong key", () => {
   const encrypted = encryptGitHubToken(token, secret);
   const parts = encrypted.split(".");
-  parts[3] = parts[3].slice(0, -1) + (parts[3].endsWith("a") ? "b" : "a");
+  parts[3] = (parts[3][0] === "A" ? "B" : "A") + parts[3].slice(1);
   assert.equal(decryptGitHubToken(parts.join("."), secret), null);
   assert.equal(decryptGitHubToken(encrypted, "a-different-secret-key-with-enough-length"), null);
 });
