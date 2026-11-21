@@ -25,6 +25,7 @@ type DeploymentReadiness = {
 };
 
 type CloudflareDeploymentLog = { timestamp: string | null; line: string };
+type CustomDomain = { id: string; name: string; status: string; validation: { method: "http" | "txt" | null; status: string; error: string | null; txtName: string | null; txtValue: string | null }; verification: { status: string; error: string | null }; createdAt: string | null };
 type WebhookDelivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; status: "received" | "processing" | "deployed" | "ignored" | "failed"; received_at: string; processed_at: string | null; attempt_count: number; available_at: string; last_error_code: string | null; };
 
 type CloudflareDeployment = {
@@ -104,6 +105,12 @@ export default function Home() {
   const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState("");
+  const [customDomains, setCustomDomains] = useState<CustomDomain[]>([]);
+  const [domainsLoading, setDomainsLoading] = useState(false);
+  const [domainsError, setDomainsError] = useState("");
+  const [domainInput, setDomainInput] = useState("");
+  const [domainSaving, setDomainSaving] = useState(false);
+  const [domainDeleting, setDomainDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +252,73 @@ export default function Home() {
   useEffect(() => {
     void refreshDeploymentHistory(selected.id, Boolean(signedInUser));
   }, [refreshDeploymentHistory, selected.id, signedInUser]);
+
+  const refreshCustomDomains = useCallback(async (projectId?: string, authenticated = false) => {
+    if (!authenticated || !projectId) {
+      setCustomDomains([]);
+      setDomainsError("");
+      setDomainsLoading(false);
+      return;
+    }
+    setDomainsLoading(true);
+    setDomainsError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/domains", { cache: "no-store" });
+      const data = await response.json() as { domains?: CustomDomain[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Custom domains could not be loaded.");
+      setCustomDomains(Array.isArray(data.domains) ? data.domains : []);
+    } catch (error) {
+      setDomainsError(error instanceof Error ? error.message : "Custom domains could not be loaded.");
+      setCustomDomains([]);
+    } finally {
+      setDomainsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCustomDomains(selected.id, Boolean(signedInUser));
+  }, [refreshCustomDomains, selected.id, signedInUser]);
+
+  async function addCustomDomain() {
+    if (!selected.id || !signedInUser || !domainInput.trim() || domainSaving) return;
+    setDomainSaving(true);
+    setDomainsError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/domains", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: domainInput }),
+      });
+      const data = await response.json() as { domain?: CustomDomain; error?: string };
+      if (!response.ok) throw new Error(data.error || "Domain could not be added.");
+      setDomainInput("");
+      await refreshCustomDomains(selected.id, true);
+      setNotice("Domain added to Cloudflare Pages. Follow the DNS instructions and refresh its status.");
+    } catch (error) {
+      setDomainsError(error instanceof Error ? error.message : "Domain could not be added.");
+    } finally {
+      setDomainSaving(false);
+    }
+  }
+
+  async function removeCustomDomain(domain: string) {
+    if (!selected.id || !signedInUser || domainDeleting) return;
+    if (!window.confirm("Remove " + domain + " from this Pages project? Its DNS record may also need to be removed at your DNS provider.")) return;
+    setDomainDeleting(domain);
+    setDomainsError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/domains?domain=" + encodeURIComponent(domain), { method: "DELETE" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Domain could not be removed.");
+      await refreshCustomDomains(selected.id, true);
+      setNotice(domain + " was removed from the Pages project.");
+    } catch (error) {
+      setDomainsError(error instanceof Error ? error.message : "Domain could not be removed.");
+    } finally {
+      setDomainDeleting(null);
+    }
+  }
+
 
   const refreshWebhookDeliveries = useCallback(async (projectId?: string, authenticated = false) => {
     if (!authenticated || !projectId) { setWebhookDeliveries([]); setWebhookError(""); setWebhookLoading(false); return; }
@@ -562,7 +636,7 @@ export default function Home() {
 
         <div className="side-label side-label-spaced">DEVELOP</div>
         <nav className="side-nav" aria-label="Developer navigation">
-          <button className="nav-item" onClick={() => setNotice("Domains will be available when custom-domain support is connected.")}><Globe2 size={17} /><span>Domains</span></button>
+          <button className={`nav-item ${activeNav === "Domains" ? "active" : ""}`} onClick={() => setActiveNav("Domains")}><Globe2 size={17} /><span>Domains</span></button>
           <button className="nav-item" onClick={() => setNotice("Storage settings are coming in a later release.")}><HardDrive size={17} /><span>Storage</span></button>
           <button className="nav-item" onClick={() => setNotice("Environment variables are planned for the next milestone.")}><Settings2 size={17} /><span>Environment</span></button>
         </nav>
@@ -666,6 +740,34 @@ export default function Home() {
               <button className="outline-button" onClick={() => setNotice(`Project settings for ${selected.name} will be available in a later milestone.`)}>Project settings <ArrowUpRight size={14} /></button>
             </section>
           </div>
+
+          <section className="panel domains-panel">
+            <div className="panel-heading">
+              <div><div className="section-kicker">CUSTOM DOMAINS</div><h2>Domains for {selected.name}</h2><p>Connect a hostname to this project's Cloudflare Pages site.</p></div>
+              <button className="text-button" onClick={() => void refreshCustomDomains(selected.id, Boolean(signedInUser))} disabled={domainsLoading || !selected.id || !signedInUser}><RefreshCw size={14} className={domainsLoading ? "spin" : ""} /> Refresh</button>
+            </div>
+            {!signedInUser ? <div className="empty-state">Sign in with GitHub to manage custom domains for your projects.</div>
+              : !selected.id ? <div className="empty-state">Select an account-owned project to manage its domains.</div>
+              : <div className="domain-manager">
+                <form className="domain-add-form" onSubmit={(event) => { event.preventDefault(); void addCustomDomain(); }}>
+                  <label htmlFor="custom-domain-input">Domain name</label>
+                  <div className="repo-input-row"><input id="custom-domain-input" value={domainInput} onChange={(event) => setDomainInput(event.target.value)} placeholder="www.example.com" autoComplete="off" /><button className="primary-button" type="submit" disabled={domainSaving || !domainInput.trim() || !selected.domain || selected.domain === "Not deployed yet"}>{domainSaving ? "Adding…" : "Add domain"}</button></div>
+                  <p className="repo-help">Deploy this project first. Apex domains require the domain to be a Cloudflare zone; subdomains can use a CNAME at your DNS provider.</p>
+                </form>
+                {domainsError && <div className="repo-error" role="alert">{domainsError}</div>}
+                {domainsLoading ? <div className="empty-state">Loading Cloudflare domain status…</div>
+                  : customDomains.length === 0 ? <div className="empty-state">{selected.domain === "Not deployed yet" ? "Deploy this project before connecting a domain." : "No custom domains are connected yet."}</div>
+                  : <div className="domain-list">{customDomains.map((domain) => <article className="domain-item" key={domain.name}>
+                    <div className="domain-item-top"><div><strong>{domain.name}</strong><span className={"health-tag " + (domain.status === "active" ? "healthy" : domain.status === "error" || domain.status === "blocked" ? "failed" : "building")}><i />{domain.status}</span></div><button className="text-button" onClick={() => void removeCustomDomain(domain.name)} disabled={domainDeleting !== null}>{domainDeleting === domain.name ? "Removing…" : "Remove"}</button></div>
+                    <div className="domain-dns"><strong>DNS configuration</strong><span>For a subdomain, create a CNAME record pointing to <code>{selected.domain}</code>. Add the domain in DEPLO first so Cloudflare can issue its certificate.</span>
+                      {domain.validation.method === "txt" && domain.validation.txtName && domain.validation.txtValue && <div className="dns-record"><small>TXT verification record</small><code>{domain.validation.txtName}</code><code>{domain.validation.txtValue}</code></div>}
+                      {domain.validation.error && <span className="domain-error">{domain.validation.error}</span>}
+                      {domain.verification.error && <span className="domain-error">{domain.verification.error}</span>}
+                    </div>
+                    <div className="domain-status-line">Validation: {domain.validation.status} · Certificate: {domain.verification.status}</div>
+                  </article>)}</div>}
+              </div>}
+          </section>
 
           <section className="panel webhook-panel">
             <div className="panel-heading">
