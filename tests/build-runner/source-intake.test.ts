@@ -20,7 +20,9 @@ async function setup(t: test.TestContext) {
 function form(bytes: Uint8Array, metadata = { repositoryFullName: "octocat/hello-world", sourceCommitSha: "a".repeat(40) }) {
   const data = new FormData();
   data.set("metadata", JSON.stringify(metadata));
-  data.set("archive", new Blob([bytes], { type: "application/zip" }), "source.zip");
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  data.set("archive", new Blob([copy.buffer as ArrayBuffer], { type: "application/zip" }), "source.zip");
   return data;
 }
 
