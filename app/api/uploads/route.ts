@@ -1,9 +1,8 @@
-import { createWriteStream } from "node:fs";
 import { mkdir, open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { MAX_HTML_BYTES, MAX_ZIP_BYTES, hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
+import { MAX_ZIP_BYTES, hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 
 export const runtime = "nodejs";
