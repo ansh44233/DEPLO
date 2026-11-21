@@ -28,3 +28,11 @@ test("recognizes ZIP local, empty archive, and spanning signatures", () => {
   assert.equal(hasZipSignature(Uint8Array.from([0x50, 0x4b, 0x07, 0x08])), true);
   assert.equal(hasZipSignature(Uint8Array.from([0x00, 0x00, 0x00, 0x00])), false);
 });
+
+import { hasHtmlDocument } from "../../lib/uploads/validate-upload";
+
+test("recognizes complete HTML documents and rejects plain text", () => {
+  assert.equal(hasHtmlDocument(new TextEncoder().encode("<!doctype html><html><body>Hello</body></html>")), true);
+  assert.equal(hasHtmlDocument(new TextEncoder().encode("<html lang='en'>")), true);
+  assert.equal(hasHtmlDocument(new TextEncoder().encode("just some text")), false);
+});
