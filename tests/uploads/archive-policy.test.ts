@@ -23,7 +23,7 @@ test("rejects empty archives and excessive entry counts", () => {
 });
 
 test("rejects excessive expanded size and compression ratios", () => {
-  assert.match(validateArchiveMetadata([{ path: "large.bin", compressedSize: 1, uncompressedSize: MAX_ARCHIVE_EXPANDED_BYTES + 1 }]) ?? "", /100 MB/);
+  assert.match(validateArchiveMetadata([{ path: "large.bin", compressedSize: 2_000_000, uncompressedSize: MAX_ARCHIVE_EXPANDED_BYTES + 1 }]) ?? "", /100 MB/);
   assert.match(validateArchiveMetadata([{ path: "bomb.bin", compressedSize: 1, uncompressedSize: MAX_ARCHIVE_COMPRESSION_RATIO + 1 }]) ?? "", /compression ratio/);
 });
 
