@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import {
   Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
@@ -15,7 +15,7 @@ type RepositoryInfo = {
   stars: number; language: string | null; branches: { name: string; commit: string }[];
 };
 
-type Project = {
+type DeploymentReadiness = {\n  provider: "cloudflare-pages";\n  configured: boolean;\n  uploadAuthenticationConfigured: boolean;\n  ready: boolean;\n  missing: string[];\n};\n\ntype Project = {
   name: string;
   domain: string;
   source: string;
@@ -51,7 +51,7 @@ export default function Home() {
   const [projects, setProjects] = useState(initialProjects);
   const [notice, setNotice] = useState("");
   const [fileName, setFileName] = useState("");
-  const [uploadError, setUploadError] = useState("");
+  const [uploadError, setUploadError] = useState("");\n  const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);\n  const [readinessLoading, setReadinessLoading] = useState(true);\n  const [readinessError, setReadinessError] = useState("");\n\n  useEffect(() => {\n    let cancelled = false;\n    fetch("/api/deploy/status", { cache: "no-store" })\n      .then(async (response) => {\n        if (!response.ok) throw new Error("Could not load provider status.");\n        return response.json() as Promise<DeploymentReadiness>;\n      })\n      .then((data) => { if (!cancelled) setReadiness(data); })\n      .catch(() => { if (!cancelled) setReadinessError("Provider status is unavailable."); })\n      .finally(() => { if (!cancelled) setReadinessLoading(false); });\n    return () => { cancelled = true; };\n  }, []);
 
   const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
   const filteredProjects = useMemo(
@@ -192,7 +192,7 @@ export default function Home() {
             <button className="primary-button" onClick={() => setModal("github")}><Plus size={17} /> New project</button>
           </div>
 
-          {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X size={15} /></button></div>}
+          {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X size={15} /></button></div>}\n\n          <section className={`provider-readiness ${readiness?.ready ? "is-ready" : "is-pending"}`} aria-live="polite">\n            <div className="provider-readiness-icon"><ShieldCheck size={17} /></div>\n            <div className="provider-readiness-copy">\n              <strong>{readinessLoading ? "Checking deployment provider…" : readinessError ? "Provider status unavailable" : readiness?.ready ? "Cloudflare Pages is configured" : "Cloudflare Pages setup required"}</strong>\n              <span>{readinessLoading ? "Reading server configuration." : readinessError ? readinessError : readiness?.ready ? "Required settings are present. Provider credentials have not been verified." : `Missing or invalid settings: ${readiness?.missing.join(", ") || "upload authentication token"}.`}</span>\n            </div>\n            <span className="provider-readiness-state">{readinessLoading ? "CHECKING" : readinessError ? "UNKNOWN" : readiness?.ready ? "CONFIGURED" : "NOT READY"}</span>\n          </section>
 
           <div className="stats-grid">
             <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail="+1 this week" />
