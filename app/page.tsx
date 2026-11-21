@@ -287,6 +287,7 @@ export default function Home() {
     const projectName = repoInfo.fullName.split("/")[1].toLowerCase();
     const slug = projectName.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58);
     const newProject: Project = {
+      slug,
       name: projectName, domain: "Not deployed yet",
       source: "github.com/" + repoInfo.fullName, branch: repoBranch,
       status: "Connected", updated: "Just now", accent: "violet",
@@ -301,7 +302,7 @@ export default function Home() {
         });
         const data = await response.json() as { project: AccountProject; error?: string };
         if (!response.ok) throw new Error(data.error || "Could not save this project.");
-        const savedProject = { ...newProject, id: data.project.id, sourceType: data.project.source_type };
+        const savedProject = { ...newProject, id: data.project.id, slug: data.project.slug, sourceType: data.project.source_type };
         setProjects((current) => [savedProject, ...current.filter((project) => project.name !== projectName)]);
         setActiveProject(projectName);
         setActiveNav("Projects");
@@ -379,6 +380,7 @@ export default function Home() {
       const savedAccountProject = accountProject;
       const previewProject: Project = {
         id: savedAccountProject.id,
+        slug: savedAccountProject.slug,
         sourceType: savedAccountProject.source_type,
         name: savedAccountProject.name,
         domain: savedAccountProject.deployment_url || "Not deployed yet",
