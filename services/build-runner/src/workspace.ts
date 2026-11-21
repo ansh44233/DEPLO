@@ -49,8 +49,8 @@ function assertSafeWorkspaceRoot(root: string): void {
  * start processes or provide OS-level sandboxing/resource enforcement.
  */
 export async function createWorkspaceManager(rootPath: string): Promise<WorkspaceManager> {
+  assertSafeWorkspaceRoot(rootPath);
   const root = resolve(rootPath);
-  assertSafeWorkspaceRoot(root);
   await mkdir(root, { recursive: true, mode: 0o700 });
   const rootInfo = await lstat(root);
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
