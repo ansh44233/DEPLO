@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Account-owned ZIP and standalone HTML upload deployment endpoint with signed-session ownership checks, safe archive extraction, static asset validation, Cloudflare publishing, and deployment URL persistence.
+- Dashboard ZIP/HTML upload flow that creates or reuses an account project and publishes it after local preflight checks.
 - Account-scoped GitHub project deployment endpoint that verifies project ownership from the signed-in GitHub session before publishing.
 - Account-scoped Cloudflare Pages deployment history filtered to the saved project's deployment branch.
 - Persist deployment URLs and update timestamps back to the owning project's database record.
@@ -43,5 +45,5 @@ All notable changes to DEPLO are documented here.
 
 ### Notes
 - Static deployment endpoints require Cloudflare Pages credentials and a configured Pages project on the server; readiness checks verify presence and format, not provider-side validity.
-- The GitHub deployment integration supports public repositories with a root `index.html`; it does not execute framework build scripts or support private repositories or automatic push redeploys. Account-owned deploy routes require a valid GitHub session and configured Supabase/Cloudflare credentials.
+- Account-owned GitHub, ZIP, and HTML deployment routes publish static sites with a root `index.html`; they do not execute framework build scripts. They require a valid GitHub session and configured Supabase/Cloudflare credentials. Private repositories and automatic push redeploys remain unsupported.
 - Uploads use local filesystem storage and a shared server-side bearer token; production multi-user hosting still needs durable object storage, account-level authorization, quotas, cleanup, and isolated build infrastructure.

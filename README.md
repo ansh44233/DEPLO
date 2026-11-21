@@ -43,7 +43,7 @@ This local filesystem adapter requires persistent disk and a Node.js runtime. It
 
 ## Upload preflight (early milestone)
 
-The browser checks selected ZIP and standalone HTML files before upload:
+The browser checks selected ZIP and standalone HTML files before upload, then signed-in users can publish them through the account-owned upload endpoint:
 - ZIP archives: `.zip` extension, ZIP signature, and a 25 MB maximum.
 - HTML documents: `.html`/`.htm` extension, complete-document marker, and a 2 MB maximum.
 - Invalid selections are rejected with an inline message.
@@ -75,6 +75,18 @@ curl -X POST "http://localhost:3000/api/github/deploy" \
 The endpoint downloads the GitHub ZIP archive from GitHub's fixed API host, enforces a 25 MiB download limit, applies the same safe ZIP extraction policy as uploads, requires a root `index.html`, checks static asset limits and blocked secret/config paths, then deploys through the configured Cloudflare Pages project. It returns the deployment URL.
 
 **Current scope:** public repositories and static HTML/CSS/JS only. Private repositories, framework build commands, per-user project ownership, and automatic redeployment on Git pushes are not yet supported. DEPLO does not execute repository scripts.
+
+## Account-owned ZIP and HTML uploads
+
+Signed-in users can upload a ZIP archive or a standalone HTML document directly to an account-owned project:
+
+- The dashboard validates the selected file locally, creates or reuses a matching account project, and sends the file to `POST /api/projects/{projectId}/upload`.
+- The server verifies the signed GitHub session and confirms the project belongs to that account before accepting the upload.
+- ZIP archives are safely extracted into a temporary private directory. HTML uploads are written as the site's root `index.html`.
+- Both paths require a root `index.html`, enforce static asset limits and blocked-path checks, publish to the configured Cloudflare Pages project on `site-{project-slug}`, and save the resulting URL to the project record.
+- ZIP uploads are limited to 25 MiB; standalone HTML uploads are limited to 2 MiB. Temporary files are removed after the deployment attempt.
+
+This is a static publishing flow, not a build system. It does not run user-provided scripts or framework build commands. It requires the signed-in session, Supabase project storage, and Cloudflare Pages credentials to be configured on the server.
 
 ## Account-owned GitHub project deployments
 
