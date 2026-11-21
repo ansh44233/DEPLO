@@ -49,12 +49,7 @@ const initialProjects: Project[] = [
   { name: "portfolio", domain: "portfolio-deplo.pages.dev", source: "index.html", branch: "—", status: "Healthy", updated: "2 days ago", accent: "pink" },
 ];
 
-const deployments = [
-  { id: "dpl_8f31a2", project: "frontend", message: "Update hero section and navigation", branch: "main", time: "4 min ago", status: "Ready", duration: "38s" },
-  { id: "dpl_71c0e9", project: "frontend", message: "Add responsive project cards", branch: "main", time: "Yesterday", status: "Ready", duration: "42s" },
-  { id: "dpl_4a91bc", project: "docs-site", message: "Production upload", branch: "production", time: "Yesterday", status: "Ready", duration: "12s" },
-  { id: "dpl_29de10", project: "portfolio", message: "Initial deployment", branch: "—", time: "2 days ago", status: "Ready", duration: "8s" },
-];
+
 
 export default function Home() {
   const [activeProject, setActiveProject] = useState("frontend");
@@ -330,7 +325,7 @@ export default function Home() {
                       <td><span className="branch-chip"><Github size={12} /> {deployment.branch}</span></td>
                       <td><span className={`health-tag ${deployment.status === "Ready" ? "healthy" : deployment.status.toLowerCase()}`}><i />{deployment.status}</span></td>
                       <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
-                      <td>{ "url" in deployment ? <a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a> : <button className="icon-button table-more" aria-label={`More options for ${deployment.id}`}><MoreHorizontal size={17} /></button>}</td>
+                      <td><a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a></td>
                     </tr>
                   ))}
                   {!historyLoading && !historyError && displayDeployments.length === 0 && <tr><td colSpan={6}><div className="empty-state">No Cloudflare deployments are available yet.</div></td></tr>}
