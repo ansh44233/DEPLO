@@ -9,6 +9,9 @@ Set these server-only variables:
 - `DEPLO_GITHUB_WEBHOOK_SECRET`: the HMAC secret configured on the GitHub repository webhook (at least 32 characters).
 - `DEPLO_WEBHOOK_WORKER_SECRET`: a separate random bearer secret (at least 32 characters) used to protect the worker endpoint.
 - `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` for private-repository auto-deploys.
+
+Apply migration `0004_github_app_installations.sql` in addition to the webhook migrations.
 - `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
 
 Apply migrations `0001_account_projects.sql`, `0002_github_webhook_deliveries.sql`, and `0003_github_webhook_retries.sql`.
@@ -29,7 +32,7 @@ Transient failures are retried automatically with exponential backoff: 30 second
 
 ## Current limitations
 
-- The worker deploys public GitHub repositories only. Private repository manual deployments continue to work through the signed-in account flow; webhook workers do not have access to a user's short-lived browser token. A GitHub App installation-token integration is required for private auto-deploys.
+- The worker uses a read-only GitHub App installation token for each account that has connected the DEPLO GitHub App. This supports private and public repositories selected in that installation. Accounts without an installation mapping retain the public-repository unauthenticated fallback; private repositories require the App to be installed and the repository selected.
 - Only static sites with a root `index.html` are published. Repository scripts and framework build commands are never executed.
 - Configure the GitHub repository webhook to send **push** events to `/api/webhooks/github` using the same `DEPLO_GITHUB_WEBHOOK_SECRET`.
 - No live Cloudflare deployment is implied by passing unit tests; provider credentials and a real test repository are required.

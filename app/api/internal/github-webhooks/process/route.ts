@@ -8,6 +8,7 @@ import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
+import { createInstallationAccessToken } from "@/lib/github/app-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,6 +68,20 @@ function endpoint(baseUrl: string, table: string, query: Record<string, string> 
   return url;
 }
 
+async function getInstallationId(baseUrl: string, key: string, ownerGithubId: number): Promise<number | null> {
+  const rows = await db<{ installation_id: number }[]>(
+    endpoint(baseUrl, "github_app_installations", {
+      select: "installation_id",
+      owner_github_id: "eq." + ownerGithubId,
+      limit: "1",
+    }),
+    key,
+    { method: "GET" },
+  );
+  const id = rows[0]?.installation_id;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 async function claimDelivery(baseUrl: string, key: string): Promise<Delivery | null> {
   const rows = await db<Delivery[]>(
     endpoint(baseUrl, "rpc/claim_next_github_webhook_delivery"),
@@ -97,9 +112,9 @@ async function setDeliveryStatus(
   );
 }
 
-async function downloadArchive(url: string, destination: string): Promise<void> {
+async function downloadArchive(url: string, destination: string, installationToken?: string): Promise<void> {
   const response = await fetch(url, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "DEPLO" },
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "DEPLO", ...(installationToken ? { Authorization: "Bearer " + installationToken, "X-GitHub-Api-Version": "2022-11-28" } : {}) },
     signal: AbortSignal.timeout(30_000),
     redirect: "follow",
     cache: "no-store",
@@ -164,23 +179,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ processed: true, deployed: 0, ignored: true }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const workRoot = await mkdtemp(join(tmpdir(), "deplo-webhook-"));
-    try {
-      const archivePath = join(workRoot, "repository.zip");
-      const extractedRoot = join(workRoot, "extracted");
-      const archiveUrl = "https://api.github.com/repos/" +
-        delivery.repository_full_name.split("/").map(encodeURIComponent).join("/") +
-        "/zipball/" + encodeURIComponent(delivery.commit_sha);
-      await downloadArchive(archiveUrl, archivePath);
-      await extractZipSafely(archivePath, extractedRoot);
-      const roots = await readdir(extractedRoot, { withFileTypes: true });
-      const siteRoot = roots.length === 1 && roots[0].isDirectory() ? join(extractedRoot, roots[0].name) : extractedRoot;
-      const index = await stat(join(siteRoot, "index.html")).catch(() => null);
-      if (!index?.isFile()) throw new Error("root_index_missing");
-      await inspectStaticDirectory(siteRoot);
+    let deployed = 0;
+    for (const project of matches) {
+      const installationId = await getInstallationId(config.baseUrl, config.serviceKey, project.owner_github_id);
+      let installationToken: string | undefined;
+      if (installationId !== null) {
+        const appId = process.env.GITHUB_APP_ID?.trim() ?? "";
+        const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim() ?? "";
+        if (!appId || !privateKey) throw new Error("github_app_not_configured");
+        installationToken = await createInstallationAccessToken(installationId, appId, privateKey);
+      }
 
-      let deployed = 0;
-      for (const project of matches) {
+      const workRoot = await mkdtemp(join(tmpdir(), "deplo-webhook-"));
+      try {
+        const archivePath = join(workRoot, "repository.zip");
+        const extractedRoot = join(workRoot, "extracted");
+        const archiveUrl = "https://api.github.com/repos/" +
+          delivery.repository_full_name.split("/").map(encodeURIComponent).join("/") +
+          "/zipball/" + encodeURIComponent(delivery.commit_sha);
+        await downloadArchive(archiveUrl, archivePath, installationToken);
+        await extractZipSafely(archivePath, extractedRoot);
+        const roots = await readdir(extractedRoot, { withFileTypes: true });
+        const siteRoot = roots.length === 1 && roots[0].isDirectory() ? join(extractedRoot, roots[0].name) : extractedRoot;
+        const index = await stat(join(siteRoot, "index.html")).catch(() => null);
+        if (!index?.isFile()) throw new Error("root_index_missing");
+        await inspectStaticDirectory(siteRoot);
+
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
         await ensureCloudflarePagesProject(target.config, target.productionBranch);
         const deployment = await deployStaticDirectory(siteRoot, target.productionBranch, target.config);
@@ -199,12 +223,12 @@ export async function POST(request: NextRequest) {
         );
         if (!saved.length) throw new Error("project_update_failed");
         deployed += 1;
+      } finally {
+        await rm(workRoot, { recursive: true, force: true }).catch(() => undefined);
       }
-      await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "deployed");
-      return NextResponse.json({ processed: true, deployed }, { headers: { "Cache-Control": "no-store" } });
-    } finally {
-      await rm(workRoot, { recursive: true, force: true }).catch(() => undefined);
     }
+    await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "deployed");
+    return NextResponse.json({ processed: true, deployed }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const code = cause instanceof Error && /^[a-z_]{3,64}$/.test(cause.message) ? cause.message : "deployment_failed";
     await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "failed", code).catch(() => undefined);
