@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Public GitHub repository deployment endpoint: downloads a selected branch, safely extracts its archive, validates static assets, and publishes through Cloudflare Pages.
+- Input validation tests for Git branch names and deployment slugs.
 - Cloudflare Pages static deployment adapter using a pinned Wrangler CLI and server-side credentials.
 - Authenticated deployment endpoint for ZIP and standalone HTML uploads, returning the provider's live Pages URL.
 - Static asset checks for file count, per-file/total size, symlinks, and common private configuration paths.
