@@ -3,7 +3,7 @@ import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projects";
 import { readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { listCloudflarePagesDeployments } from "@/lib/deploy/cloudflare-history";
-import { getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
+import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
     const allDeployments = await listCloudflarePagesDeployments(pagesTarget.config);
     const deployments = allDeployments.filter((deployment) => deployment.branch === pagesTarget.productionBranch);
     return NextResponse.json({ deployments }, {
