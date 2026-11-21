@@ -52,7 +52,7 @@ export async function detectFrameworkBuildPlan(root: string): Promise<FrameworkB
   const packageManager = await detectPackageManager(root);
   const framework: DetectedFramework = "next" in dependencies ? "nextjs"
     : "vite" in dependencies ? "vite"
-    : "react" in dependencies && "@craco/craco" in dependencies ? "create-react-app"
+    : "react" in dependencies && "react-scripts" in dependencies ? "create-react-app"
     : "react" in dependencies ? "react"
     : await exists(join(root, "index.html")) ? "static" : "unknown";
 

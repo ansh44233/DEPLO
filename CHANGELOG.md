@@ -5,6 +5,10 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Framework build-plan detection for Vite, React, Create React App, and Next.js using package metadata and lockfiles only; no project config modules, dependency installs, or user scripts are executed.
+- Tests for framework classification, package-manager selection, static export detection, malformed manifests, and safe no-build behavior.
+
+### Added
 - Owner-scoped project rename API and dashboard settings control; display names can be updated without changing deployment slugs or hosted URLs.
 - Tests for owner-filtered project renames and rejection of projects belonging to other accounts.
 - Deployment history now includes validated source commit hashes from Cloudflare metadata, displayed as short commit references alongside deployment IDs.
