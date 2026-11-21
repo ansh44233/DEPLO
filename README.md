@@ -128,9 +128,9 @@ Account-owned deployment endpoints support public and authorized private GitHub 
 The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through Wrangler.
 
 Before using it:
-1. Create a **Direct Upload** Cloudflare Pages project in your Cloudflare account. Set its name in `CLOUDFLARE_PAGES_PROJECT_NAME`.
-2. Create a Cloudflare API token with Pages Write permission.
-3. Configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_PAGES_PROJECT_NAME` on the server.
+1. Create a Cloudflare API token with **Pages Write** permission.
+2. Configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` on the server. DEPLO automatically creates an isolated Pages project for each account-owned site and sets that site's dedicated branch as production.
+3. `CLOUDFLARE_PAGES_PROJECT_NAME` is optional and is used only by legacy shared-token deployment endpoints.
 4. Keep `DEPLO_UPLOAD_TOKEN` private; do not put it in browser code.
 
 Example request:
