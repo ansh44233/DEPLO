@@ -27,5 +27,13 @@ export async function POST(request: NextRequest) {
     path: "/",
     maxAge: 0,
   });
+
+  response.cookies.set("deplo_github_token", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
   return response;
 }
