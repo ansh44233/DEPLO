@@ -162,7 +162,7 @@ export default function Home() {
       .catch(() => { if (!cancelled) setSignedInUser(null); })
       .finally(() => { if (!cancelled) setAuthLoading(false); });
     const authResult = new URLSearchParams(window.location.search).get("auth");
-    if (authResult === "success") setNotice("Signed in with GitHub. Account-owned projects are not enabled yet.");
+    if (authResult === "success") setNotice("Signed in with GitHub. Your saved projects are loading.");
     if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
     if (authResult) window.history.replaceState({}, "", window.location.pathname);
     return () => { cancelled = true; };
