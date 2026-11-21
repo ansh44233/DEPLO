@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
-import { deployStaticDirectory, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("Only ZIP and standalone HTML projects can use this upload endpoint.", 422);
   }
 
-  const config = readCloudflarePagesConfig();
+  const config = readCloudflarePagesCredentials();
   if (!config) return jsonError("Cloudflare Pages deployment is not configured on the server.", 503);
   let pagesTarget;
   try {
