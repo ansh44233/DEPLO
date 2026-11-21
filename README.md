@@ -271,3 +271,15 @@ DEPLO can inspect an extracted project's `package.json`, lockfiles, and framewor
 - Framework detection is not a live framework deployment feature and does not make arbitrary repositories safe to build.
 
 A production runner must isolate each build from the DEPLO web process, enforce CPU, memory, time, disk, and concurrency limits, avoid injecting deployment credentials into build environments, and publish only validated immutable artifacts.
+
+
+## Durable framework build queue (foundation)
+
+Migration `0006_durable_build_jobs.sql` adds an account-owned queue for exact-commit build requests. Apply it after migrations `0001`–`0005`.
+
+- `POST /api/projects/{projectId}/build-jobs` queues a GitHub project's full 40-character source commit SHA and a supported static framework plan.
+- `GET /api/projects/{projectId}/build-jobs` lists only jobs owned by the signed-in GitHub account.
+- `DELETE /api/projects/{projectId}/build-jobs/{jobId}` cancels only pending or processing jobs belonging to that same account and project.
+- The database provides atomic `SKIP LOCKED` job claiming, stale-claim recovery, bounded retries, and sanitized error codes for a future worker.
+
+**Important:** this is queue storage and API groundwork only. No build worker is connected; queued jobs do not execute, install dependencies, or deploy. A future worker must use an isolated ephemeral runner with strict resource limits, no deployment secrets in the build environment, validated immutable artifacts, and cancellation/timeout enforcement. The API's submitted framework metadata is a request, not proof that the repository actually uses that framework; the worker must independently inspect the exact commit before building.
