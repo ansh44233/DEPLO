@@ -1,16 +1,13 @@
 # Changelog
 
-## Unreleased
-- Add GitHub OAuth sign-in with short-lived state validation and signed HttpOnly sessions.
-- Add session inspection and origin-checked sign-out endpoints, plus dashboard sign-in controls.
-- Document that account identity is not yet project ownership or private-repository authorization.
-
-
 All notable changes to DEPLO are documented here.
 
 ## Unreleased
 
 ### Added
+- GitHub OAuth sign-in with short-lived state validation and signed HttpOnly sessions.
+- Session inspection and origin-checked sign-out endpoints, plus dashboard sign-in controls.
+- Documentation clarifying that account identity is not yet project ownership or private-repository authorization.
 - Read-only Cloudflare Pages deployment history API with sanitized deployment records and no-store responses.
 - Dashboard provider-readiness indicator connected to the no-store deployment status endpoint.
 - Public GitHub repository deployment endpoint: downloads a selected branch, safely extracts its archive, validates static assets, and publishes through Cloudflare Pages.
