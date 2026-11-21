@@ -8,7 +8,8 @@ import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } 
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
 import { isValidGitHubBranch } from "@/lib/github/deploy-validation";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
-import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
+import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 
 export const runtime = "nodejs";
@@ -95,11 +96,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("The saved GitHub repository details are invalid. Re-import this repository.", 422);
   }
 
-  const config = readCloudflarePagesConfig();
+  const config = readCloudflarePagesCredentials();
   if (!config) return jsonError("Cloudflare Pages deployment is not configured on the server.", 503);
 
-  const pagesBranch = "site-" + project.slug;
-  if (!isValidPagesBranch(pagesBranch)) return jsonError("Invalid Cloudflare Pages branch.", 400);
+  let pagesTarget: ReturnType<typeof getAccountPagesTarget>;
+  try {
+    pagesTarget = getAccountPagesTarget(config, user.id, project.slug);
+  } catch {
+    return jsonError("The account project cannot be mapped to a valid Cloudflare Pages project.", 422);
+  }
+  if (!isValidPagesBranch(pagesTarget.productionBranch)) return jsonError("Invalid Cloudflare Pages production branch.", 400);
 
   const workRoot = await mkdtemp(join(tmpdir(), "deplo-account-deploy-"));
   const archivePath = join(workRoot, "repository.zip");
@@ -122,7 +128,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const assets = await inspectStaticDirectory(projectRoot);
-    const deployment = await deployStaticDirectory(projectRoot, pagesBranch, config);
+    await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
+    const deployment = await deployStaticDirectory(projectRoot, pagesTarget.productionBranch, pagesTarget.config);
     let savedProject;
     try {
       savedProject = await updateOwnedProjectDeployment(user.id, project.id, deployment.url);
