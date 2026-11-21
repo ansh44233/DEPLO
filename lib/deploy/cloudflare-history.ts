@@ -87,3 +87,37 @@ export async function listCloudflarePagesDeployments(
   }
   return normalizeCloudflareDeployments(payload.result);
 }
+
+export async function rollbackCloudflarePagesDeployment(
+  config: CloudflarePagesConfig,
+  deploymentId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<CloudflareDeployment> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deploymentId)) {
+    throw new Error("Invalid Cloudflare deployment ID.");
+  }
+
+  const endpoint = new URL(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/pages/projects/${encodeURIComponent(config.projectName)}/deployments/${encodeURIComponent(deploymentId)}/rollback`,
+  );
+  const response = await fetcher(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(15_000),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Cloudflare Pages could not roll back this deployment.");
+
+  const payload = await response.json() as CloudflareApiResponse;
+  if (payload.success !== true || !isRecord(payload.result)) {
+    throw new Error("Cloudflare Pages returned an invalid rollback response.");
+  }
+  const deployment = normalizeCloudflareDeployments([payload.result])[0];
+  if (!deployment || deployment.status !== "success" || deployment.environment !== "production") {
+    throw new Error("Cloudflare Pages did not confirm a successful production rollback.");
+  }
+  return deployment;
+}
