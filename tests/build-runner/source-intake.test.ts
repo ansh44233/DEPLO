@@ -126,5 +126,5 @@ test("runner HTTP server applies bounded header, request, and keep-alive limits"
   assert.equal(server.requestTimeout, 120_000);
   assert.equal(server.keepAliveTimeout, 5_000);
   assert.equal(server.maxRequestsPerSocket, 100);
-  assert.equal(server.maxHeadersCount, 2000);
+  assert.equal(server.maxHeadersCount, 50);
 });

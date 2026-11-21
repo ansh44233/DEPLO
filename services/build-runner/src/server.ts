@@ -200,6 +200,7 @@ export function createRunnerServer(config: RunnerConfig) {
       return json(res, 500, { error: "internal_error" });
     }
   });
+  server.maxHeadersCount = 50;
   return server;
 }
 
