@@ -5,6 +5,10 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Owner-scoped Cloudflare Pages deployment log API with branch-membership checks, bounded/sanitized log output, and no-store responses.
+- Dashboard deployment log viewer for account-owned projects.
+- Owner-scoped Cloudflare production rollback endpoint with strict successful-production and project-branch checks.
+- Tests for rollback request validation and deployment log retrieval/response validation.
 - Private GitHub repository inspection and account-owned static deployment using the signed-in GitHub OAuth token.
 - AES-256-GCM encryption helper for the GitHub token, held only in a Secure/HttpOnly/SameSite cookie and cleared on sign-out.
 - Tests covering token encryption, nonce uniqueness, tamper detection, and invalid-key handling.
