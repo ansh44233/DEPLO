@@ -25,6 +25,7 @@ type DeploymentReadiness = {
 };
 
 type CloudflareDeploymentLog = { timestamp: string | null; line: string };
+type WebhookDelivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; status: "received" | "processing" | "deployed" | "ignored" | "failed"; received_at: string; processed_at: string | null; attempt_count: number; available_at: string; last_error_code: string | null; };
 
 type CloudflareDeployment = {
   id: string;
@@ -84,6 +85,9 @@ export default function Home() {
   const [cloudflareDeployments, setCloudflareDeployments] = useState<CloudflareDeployment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
+  const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookError, setWebhookError] = useState("");
   const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(false);
@@ -211,6 +215,23 @@ export default function Home() {
   useEffect(() => {
     void refreshDeploymentHistory(selected.id, Boolean(signedInUser));
   }, [refreshDeploymentHistory, selected.id, signedInUser]);
+
+  const refreshWebhookDeliveries = useCallback(async (projectId?: string, authenticated = false) => {
+    if (!authenticated || !projectId) { setWebhookDeliveries([]); setWebhookError(""); setWebhookLoading(false); return; }
+    setWebhookLoading(true); setWebhookError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/webhook-deliveries", { cache: "no-store" });
+      const data = await response.json() as { deliveries?: WebhookDelivery[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "GitHub delivery activity is unavailable.");
+      setWebhookDeliveries(Array.isArray(data.deliveries) ? data.deliveries : []);
+    } catch (error) {
+      setWebhookError(error instanceof Error ? error.message : "GitHub delivery activity is unavailable."); setWebhookDeliveries([]);
+    } finally { setWebhookLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    void refreshWebhookDeliveries(selected.id, Boolean(signedInUser) && selected.sourceType === "github");
+  }, [refreshWebhookDeliveries, selected.id, selected.sourceType, signedInUser]);
 
   async function deploySelectedProject() {
     if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
