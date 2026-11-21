@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, safeEqual } from "@/lib/auth/session";
+import { encryptGitHubToken } from "@/lib/auth/github-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ function callbackUrl(): string | null {
   }
 }
 
-function finish(request: NextRequest, result: "error" | "success", sessionToken?: string) {
+function finish(request: NextRequest, result: "error" | "success", sessionToken?: string, encryptedGitHubToken?: string) {
   let destination: URL;
   try {
     destination = new URL("/", process.env.DEPLO_BASE_URL || request.nextUrl.origin);
@@ -35,7 +36,7 @@ function finish(request: NextRequest, result: "error" | "success", sessionToken?
     path: "/api/auth/github/callback",
     maxAge: 0,
   });
-  if (sessionToken) {
+  response.cookies.set("deplo_github_token", encryptedGitHubToken ?? "", {\n    httpOnly: true,\n    secure: process.env.NODE_ENV === "production",\n    sameSite: "lax",\n    path: "/",\n    maxAge: encryptedGitHubToken ? 60 * 60 * 24 * 7 : 0,\n  });\n  if (sessionToken) {
     response.cookies.set("deplo_session", sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -54,12 +55,12 @@ export async function GET(request: NextRequest) {
   const savedState = request.cookies.get("deplo_oauth_state")?.value ?? "";
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  const sessionSecret = process.env.DEPLO_SESSION_SECRET;
+  const sessionSecret = process.env.DEPLO_SESSION_SECRET;\n  const tokenEncryptionKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
   const redirectUri = callbackUrl();
 
   if (
     !code || !state || !savedState || !safeEqual(state, savedState) ||
-    !clientId || !clientSecret || !sessionSecret || sessionSecret.length < 32 || !redirectUri
+    !clientId || !clientSecret || !sessionSecret || sessionSecret.length < 32 || !tokenEncryptionKey || tokenEncryptionKey.length < 32 || !redirectUri
   ) return finish(request, "error");
 
   try {
