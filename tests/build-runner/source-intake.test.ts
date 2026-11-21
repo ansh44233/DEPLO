@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRunnerServer } from "../../services/build-runner/src/server";
@@ -78,4 +78,43 @@ test("build endpoint fails closed until an isolation backend is configured", asy
   });
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: "sandbox_not_configured" });
+});
+
+
+test("maintenance cleanup expires old archives and matching idempotency records", async t => {
+  const { base, dir } = await setup(t);
+  const upload = await fetch(base + "/v1/sources", {
+    method: "POST", body: form(archive),
+    headers: { Authorization: "Bearer " + token, "Idempotency-Key": jobId },
+  });
+  assert.equal(upload.status, 201);
+  const { sourceId } = await upload.json() as { sourceId: string };
+  const files = await readdir(dir);
+  const archivePath = join(dir, sourceId + ".zip");
+  const recordPath = join(dir, files.find(name => name.startsWith("idem-"))!);
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  await utimes(archivePath, old, old);
+  await utimes(recordPath, old, old);
+  const denied = await fetch(base + "/v1/maintenance/cleanup", { method: "POST" });
+  assert.equal(denied.status, 401);
+  const response = await fetch(base + "/v1/maintenance/cleanup", {
+    method: "POST", headers: { Authorization: "Bearer " + token },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { sourcesRemoved: 1, recordsRemoved: 1, bytesFreed: archive.length });
+  assert.deepEqual(await readdir(dir), []);
+});
+
+test("maintenance cleanup keeps recent source archives", async t => {
+  const { base, dir } = await setup(t);
+  const response = await fetch(base + "/v1/sources", {
+    method: "POST", body: form(archive),
+    headers: { Authorization: "Bearer " + token, "Idempotency-Key": jobId },
+  });
+  assert.equal(response.status, 201);
+  const cleanup = await fetch(base + "/v1/maintenance/cleanup", {
+    method: "POST", headers: { Authorization: "Bearer " + token },
+  });
+  assert.deepEqual(await cleanup.json(), { sourcesRemoved: 0, recordsRemoved: 0, bytesFreed: 0 });
+  assert.equal((await readdir(dir)).filter(name => name.endsWith(".zip")).length, 1);
 });

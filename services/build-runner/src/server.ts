@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, isAbsolute, resolve } from "node:path";
 
 const MAX_ARCHIVE = 25 * 1024 * 1024;
@@ -109,6 +109,43 @@ async function saveSource(config: RunnerConfig, key: string, metadata: ReturnTyp
   }
 }
 
+
+const SOURCE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const CLEANUP_BATCH_LIMIT = 100;
+
+async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
+  const entries = await readdir(dataDir, { withFileTypes: true });
+  const expired = new Set<string>();
+  let bytesFreed = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || !/^src_[a-f0-9]{48}\.zip$/.test(entry.name)) continue;
+    if (expired.size >= CLEANUP_BATCH_LIMIT) break;
+    const path = join(dataDir, entry.name);
+    let info;
+    try { info = await stat(path); } catch { continue; }
+    if (now - info.mtimeMs < SOURCE_RETENTION_MS) continue;
+    await rm(path, { force: true });
+    expired.add(entry.name.slice(0, -4));
+    bytesFreed += info.size;
+  }
+  let recordsRemoved = 0;
+  if (expired.size) {
+    for (const entry of entries) {
+      if (!entry.isFile() || !/^idem-[a-f0-9]{64}\.json$/.test(entry.name)) continue;
+      const path = join(dataDir, entry.name);
+      try {
+        const record = JSON.parse(await readFile(path, "utf8")) as { sourceId?: unknown };
+        if (typeof record.sourceId === "string" && expired.has(record.sourceId)) {
+          await rm(path, { force: true });
+          recordsRemoved++;
+        }
+      } catch {
+        // Leave malformed records for operator inspection rather than deleting unknown data.
+      }
+    }
+  }
+  return { sourcesRemoved: expired.size, recordsRemoved, bytesFreed };
+}
 export function createRunnerServer(config: RunnerConfig) {
   if (config.token.length < 32) throw new Error("Runner token must contain at least 32 characters.");
   if (!isAbsolute(config.dataDir)) throw new Error("Runner data directory must be absolute.");
@@ -136,6 +173,11 @@ export function createRunnerServer(config: RunnerConfig) {
         const metadata = parseMetadata(metadataParts[0].bytes);
         const saved = await saveSource(config, key, metadata, archive);
         return json(res, saved.duplicate ? 200 : 201, { sourceId: saved.sourceId });
+      }
+      if (req.method === "POST" && path === "/v1/maintenance/cleanup") {
+        if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
+        const result = await cleanupExpiredSources(config.dataDir);
+        return json(res, 200, result);
       }
       if (req.method === "POST" && path === "/v1/builds") {
         if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
