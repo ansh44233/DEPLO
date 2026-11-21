@@ -8,7 +8,11 @@ import {
   releaseRunnerPollClaim, scheduleRunnerPoll,
 } from "@/lib/db/supabase-build-jobs";
 import { getOwnedProjectById, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
-import { AsyncBuildRunnerError, getIsolatedBuildStatus, submitIsolatedBuild } from "@/lib/deploy/async-build-runner";
+import { getActiveGitHubInstallationId, GitHubInstallationStoreError } from "@/lib/db/supabase-github-app-installations";
+import { createInstallationAccessToken } from "@/lib/github/app-auth";
+import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
+import { downloadGitHubSourceArchive, GitHubSourceArchiveError } from "@/lib/github/build-source";
+import { AsyncBuildRunnerError, getIsolatedBuildStatus, submitIsolatedBuild, uploadBuildSourceArchive } from "@/lib/deploy/async-build-runner";
 import { downloadAndValidateBuildArtifact, BuildArtifactError } from "@/lib/deploy/build-artifact";
 import { readBuildRunnerConfiguration } from "@/lib/deploy/build-runner-contract";
 import { readCloudflarePagesCredentials, deployStaticDirectory } from "@/lib/deploy/cloudflare-pages";
@@ -20,8 +24,7 @@ export const maxDuration = 300;
 
 function authorized(header: string | null, secret: string): boolean {
   if (secret.length < 32 || !header?.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice(7));
-  const expected = Buffer.from(secret);
+  const supplied = Buffer.from(header.slice(7)); const expected = Buffer.from(secret);
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 function response(body: Record<string, unknown>, status = 200) {
@@ -40,7 +43,9 @@ function errorCode(error: unknown): string {
     if (error.code === "rejected") return "runner_rejected";
     return "artifact_invalid";
   }
-  return "artifact_publish_failed";
+  if (error instanceof GitHubSourceArchiveError) return "github_source_" + error.code;
+  if (error instanceof GitHubInstallationStoreError) return "github_installation_unavailable";
+  return "build_worker_failed";
 }
 
 async function publishBuildArtifact(job: NonNullable<Awaited<ReturnType<typeof claimNextRunnerPollJob>>>, artifact: {
@@ -59,9 +64,26 @@ async function publishBuildArtifact(job: NonNullable<Awaited<ReturnType<typeof c
     const deployed = await deployStaticDirectory(validated.extractionDirectory, target.productionBranch, target.config);
     await updateOwnedProjectDeployment(job.owner_github_id, job.project_id, deployed.url);
     return deployed.url;
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true }).catch(() => undefined);
-  }
+  } finally { await rm(temporaryRoot, { recursive: true, force: true }).catch(() => undefined); }
+}
+
+async function stageSourceForRunner(job: NonNullable<Awaited<ReturnType<typeof claimNextBuildJob>>>): Promise<{ sourceId: string; repositoryFullName: string }> {
+  const project = await getOwnedProjectById(job.owner_github_id, job.project_id);
+  if (!project || project.source_type !== "github" || !project.repository_url) throw new Error("A saved GitHub project is required for framework builds.");
+  const repository = parsePublicGitHubUrl(project.repository_url);
+  if (!repository) throw new Error("The saved GitHub repository URL is invalid.");
+  const installationId = await getActiveGitHubInstallationId(job.owner_github_id);
+  if (!installationId) throw new Error("A connected, active GitHub App installation is required to build this repository.");
+  const appId = process.env.GITHUB_APP_ID?.trim() ?? "";
+  const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim() ?? "";
+  if (!appId || !privateKey) throw new Error("GitHub App source access is not configured.");
+  const installationToken = await createInstallationAccessToken(installationId, appId, privateKey);
+  const archive = await downloadGitHubSourceArchive(repository, job.source_commit_sha, installationToken);
+  const repositoryFullName = repository.owner + "/" + repository.repository;
+  const uploaded = await uploadBuildSourceArchive({
+    jobId: job.id, sourceCommitSha: job.source_commit_sha, repositoryFullName, archive,
+  });
+  return { sourceId: uploaded.sourceId, repositoryFullName };
 }
 
 export async function POST(request: NextRequest) {
@@ -72,7 +94,6 @@ export async function POST(request: NextRequest) {
   let pollJob: Awaited<ReturnType<typeof claimNextRunnerPollJob>> = null;
   try { pollJob = await claimNextRunnerPollJob(); }
   catch { return response({ error: "A runner job could not be claimed for polling." }, 502); }
-
   if (pollJob?.runner_job_id) {
     try {
       const status = await getIsolatedBuildStatus(pollJob.runner_job_id);
@@ -89,9 +110,7 @@ export async function POST(request: NextRequest) {
         return response({ processed: true, action: "failed", jobId: pollJob.id, retryScheduled: pollJob.attempt_count < pollJob.max_attempts });
       }
       const deploymentUrl = await publishBuildArtifact(pollJob, {
-        artifactId: status.result.artifactId,
-        outputFileCount: status.result.outputFileCount,
-        outputBytes: status.result.outputBytes,
+        artifactId: status.result.artifactId, outputFileCount: status.result.outputFileCount, outputBytes: status.result.outputBytes,
       });
       await finishBuildJob(pollJob.id, "succeeded");
       return response({ processed: true, action: "deployed", jobId: pollJob.id, deploymentUrl });
@@ -108,12 +127,10 @@ export async function POST(request: NextRequest) {
   if (!job) return response({ processed: false, reason: "queue-empty" });
 
   try {
+    const source = await stageSourceForRunner(job);
     const submitted = await submitIsolatedBuild({
-      jobId: job.id,
-      sourceCommitSha: job.source_commit_sha,
-      framework: job.framework,
-      packageManager: job.package_manager,
-      outputDirectory: job.output_directory,
+      jobId: job.id, sourceId: source.sourceId, sourceCommitSha: job.source_commit_sha,
+      framework: job.framework, packageManager: job.package_manager, outputDirectory: job.output_directory,
     });
     const attached = await attachRunnerJob(job.id, submitted.runnerJobId);
     if (!attached) return response({ processed: true, action: "runner-accepted-needs-reconciliation", jobId: job.id }, 409);
