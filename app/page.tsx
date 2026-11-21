@@ -306,7 +306,7 @@ export default function Home() {
       }
     } else {
       const html = await file.text();
-      if (!/<html[\s>]/i.test(html) && !/<!doctype\s+html/i.test(html)) {
+      if (!/<html[\\s>]/i.test(html) && !/<!doctype\\s+html/i.test(html)) {
         setUploadError("The file should contain a complete HTML document.");
         setFileName("");
         return;
@@ -315,7 +315,73 @@ export default function Home() {
 
     setFileName(file.name);
     setUploadError("");
-    setNotice(`${file.name} passed local file checks. It has not been uploaded or deployed yet.`);
+    if (!signedInUser) {
+      setNotice("File checks passed. Sign in with GitHub to save and deploy this upload to your account.");
+      return;
+    }
+
+    const baseName = file.name.replace(/\\.[^.]+$/, "").trim().slice(0, 60) || "Uploaded site";
+    const slug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58) || "uploaded-site";
+    setProjectSaving(true);
+    setNotice("Creating your project and preparing the upload…");
+    try {
+      let accountProject: AccountProject | null = null;
+      const createResponse = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: baseName, slug, sourceType: kind }),
+      });
+      const createData = await createResponse.json() as { project?: AccountProject; error?: string };
+      if (createResponse.ok && createData.project) {
+        accountProject = createData.project;
+      } else if (createResponse.status === 409) {
+        const listResponse = await fetch("/api/projects", { cache: "no-store" });
+        const listData = await listResponse.json() as { projects?: AccountProject[] };
+        accountProject = listData.projects?.find((project) => project.slug === slug && project.source_type === kind) ?? null;
+        if (!accountProject) throw new Error(createData.error || "A project with this name already exists.");
+      } else {
+        throw new Error(createData.error || "Could not create your project.");
+      }
+
+      const savedAccountProject = accountProject;
+      const previewProject: Project = {
+        id: savedAccountProject.id,
+        sourceType: savedAccountProject.source_type,
+        name: savedAccountProject.name,
+        domain: savedAccountProject.deployment_url || "Not deployed yet",
+        source: kind === "zip" ? "ZIP upload" : "index.html",
+        branch: "—",
+        status: savedAccountProject.deployment_url ? "Healthy" : "Connected",
+        updated: new Date(savedAccountProject.updated_at).toLocaleString(),
+        accent: "violet",
+      };
+      setProjects((current) => [previewProject, ...current.filter((project) => project.id !== previewProject.id)]);
+
+      const form = new FormData();
+      form.append("file", file);
+      const uploadResponse = await fetch("/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload", {
+        method: "POST",
+        body: form,
+      });
+      const uploadData = await uploadResponse.json() as { url?: string; error?: string };
+      if (!uploadResponse.ok) throw new Error(uploadData.error || "Upload deployment failed.");
+
+      const deployedProject: Project = {
+        ...previewProject,
+        domain: uploadData.url || previewProject.domain,
+        status: "Healthy",
+        updated: "Just now",
+      };
+      setProjects((current) => [deployedProject, ...current.filter((project) => project.id !== deployedProject.id)]);
+      setActiveProject(deployedProject.name);
+      setActiveNav("Projects");
+      setNotice(uploadData.url ? "Your site is live: " + uploadData.url : "Upload deployment completed.");
+      setModal(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Upload deployment failed.");
+    } finally {
+      setProjectSaving(false);
+    }
   }
 
   return (
