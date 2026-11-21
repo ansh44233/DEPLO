@@ -312,7 +312,7 @@ export default function Home() {
           <section className="panel deployments-panel">
             <div className="panel-heading">
               <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
-              <button className="text-button" onClick={() => setActiveNav("Deployments")}>Refreshable provider history <ArrowUpRight size={14} /></button>
+              <button className="text-button" onClick={() => setActiveNav("Deployments")}>View deployment history <ArrowUpRight size={14} /></button>
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
