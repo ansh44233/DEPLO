@@ -88,7 +88,8 @@ export default function Home() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
-  const [projectDeploying, setProjectDeploying] = useState(false);\n  const [projectDeleting, setProjectDeleting] = useState(false);
+  const [projectDeploying, setProjectDeploying] = useState(false);
+  const [projectDeleting, setProjectDeleting] = useState(false);
   const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
   const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
   const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
