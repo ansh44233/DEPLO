@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, isAbsolute, resolve } from "node:path";
 
 const MAX_ARCHIVE = 25 * 1024 * 1024;
@@ -76,24 +76,37 @@ async function saveSource(config: RunnerConfig, key: string, metadata: ReturnTyp
   const keyId = createHash("sha256").update(key).digest("hex");
   const sourceId = "src_" + createHash("sha256").update(key).update(digest).digest("hex").slice(0, 48);
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+  await chmod(config.dataDir, 0o700);
   const archivePath = join(config.dataDir, sourceId + ".zip");
   const recordPath = join(config.dataDir, "idem-" + keyId + ".json");
-  try { await writeFile(archivePath, archive, { flag: "wx", mode: 0o600 }); }
-  catch (error) {
+  let createdArchive = false;
+  try {
+    await writeFile(archivePath, archive, { flag: "wx", mode: 0o600 });
+    createdArchive = true;
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const existing = await readFile(archivePath);
     if (createHash("sha256").update(existing).digest("hex") !== digest) throw new Error("source_conflict");
   }
   const record = { sourceId, digest, ...metadata };
-  try { await writeFile(recordPath, JSON.stringify(record), { flag: "wx", mode: 0o600 }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    const existing = JSON.parse(await readFile(recordPath, "utf8")) as typeof record;
-    if (existing.digest !== digest || existing.repositoryFullName !== metadata.repositoryFullName ||
-        existing.sourceCommitSha !== metadata.sourceCommitSha) throw new Error("source_conflict");
-    return { sourceId: existing.sourceId, duplicate: true };
+  try {
+    await writeFile(recordPath, JSON.stringify(record), { flag: "wx", mode: 0o600 });
+    return { sourceId, duplicate: false };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      if (createdArchive) await rm(archivePath, { force: true });
+      throw error;
+    }
+    try {
+      const existing = JSON.parse(await readFile(recordPath, "utf8")) as typeof record;
+      if (existing.digest !== digest || existing.repositoryFullName !== metadata.repositoryFullName ||
+          existing.sourceCommitSha !== metadata.sourceCommitSha) throw new Error("source_conflict");
+      return { sourceId: existing.sourceId, duplicate: true };
+    } catch (recordError) {
+      if (createdArchive) await rm(archivePath, { force: true });
+      throw recordError;
+    }
   }
-  return { sourceId, duplicate: false };
 }
 
 export function createRunnerServer(config: RunnerConfig) {
