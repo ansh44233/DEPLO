@@ -142,3 +142,10 @@ The GitHub repository inspection endpoint only accepts canonical public GitHub r
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+## Deployment readiness
+
+The unauthenticated `GET /api/deploy/status` endpoint reports whether the server has the Cloudflare Pages settings and upload authentication required for deployment. It returns configuration booleans and missing setting names only; secret values are never returned. The response is marked `Cache-Control: no-store`.
+
+A `ready: true` response confirms that required environment variables are present and syntactically valid. It does not verify that the Cloudflare token is accepted by Cloudflare or that the Pages project exists.
