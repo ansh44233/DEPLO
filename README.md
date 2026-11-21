@@ -14,7 +14,7 @@ The dashboard can inspect **public GitHub repositories** by URL, retrieve reposi
 
 This is an early integration milestone, not a production deployment pipeline:
 - Private repository access is not connected yet. GitHub OAuth sign-in establishes account identity only; it does not yet grant private-repository access.
-- The selected repository is held in client-side preview state and is not saved to an account database.
+- When signed in and Supabase is configured, the selected repository is saved as account-owned project metadata. Without sign-in or database configuration, it remains a temporary browser preview.
 - Selecting a repository does not run a build or publish a live URL.
 - GitHub's unauthenticated API rate limits apply.
 
@@ -175,4 +175,4 @@ DEPLO can store project metadata in Supabase Postgres and scope project list/cre
 
 To configure it, create a Supabase project, run [`supabase/migrations/0001_account_projects.sql`](supabase/migrations/0001_account_projects.sql) in the SQL editor, and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server. Never expose the service-role key through a `NEXT_PUBLIC_` variable.
 
-This is the persistence/API foundation. The dashboard project list is still a preview and is not yet connected to these endpoints. Deployment routes are also not yet scoped to project ownership; keep them behind the existing server-side token and do not expose that token to browsers.
+This is the persistence/API foundation. When signed in, the dashboard loads account-owned projects and saves imported repository metadata through these endpoints. Deployment routes are still not scoped to project ownership; keep them behind the existing server-side token and do not expose that token to browsers.
