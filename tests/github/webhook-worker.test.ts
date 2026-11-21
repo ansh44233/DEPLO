@@ -34,3 +34,16 @@ test("uses capped exponential retry delays", () => {
   assert.equal(getWebhookRetryDelaySeconds(8), 3600);
   assert.equal(getWebhookRetryDelaySeconds(99), 3600);
 });
+
+import { getGitHubArchiveHeaders } from "../../lib/github/webhook-archive";
+
+test("private archive requests use a short-lived installation token", () => {
+  const headers = getGitHubArchiveHeaders("installation-token");
+  assert.equal(headers.Authorization, "Bearer installation-token");
+  assert.equal(headers.Accept, "application/vnd.github+json");
+});
+
+test("public archive fallback does not send an authorization header", () => {
+  const headers = getGitHubArchiveHeaders();
+  assert.equal("Authorization" in headers, false);
+});

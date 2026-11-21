@@ -9,6 +9,7 @@ import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/dep
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
+import { getGitHubArchiveHeaders } from "@/lib/github/webhook-archive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,7 +80,7 @@ async function getInstallationId(baseUrl: string, key: string, ownerGithubId: nu
     { method: "GET" },
   );
   const id = rows[0]?.installation_id;
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 async function claimDelivery(baseUrl: string, key: string): Promise<Delivery | null> {
@@ -114,7 +115,7 @@ async function setDeliveryStatus(
 
 async function downloadArchive(url: string, destination: string, installationToken?: string): Promise<void> {
   const response = await fetch(url, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "DEPLO", ...(installationToken ? { Authorization: "Bearer " + installationToken, "X-GitHub-Api-Version": "2022-11-28" } : {}) },
+    headers: getGitHubArchiveHeaders(installationToken),
     signal: AbortSignal.timeout(30_000),
     redirect: "follow",
     cache: "no-store",
