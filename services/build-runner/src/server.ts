@@ -74,6 +74,7 @@ function parseMetadata(raw: Buffer): { repositoryFullName: string; sourceCommitS
 }
 async function validateSourceArchive(config: RunnerConfig, archive: Buffer): Promise<void> {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+  await chmod(config.dataDir, 0o700);
   const validationRoot = await mkdtemp(join(config.dataDir, ".validate-"));
   const archivePath = join(validationRoot, "source.zip");
   try {

@@ -71,7 +71,8 @@ test("source intake is idempotent and rejects conflicting retries", async t => {
   const retry = await send(archive);
   assert.equal(retry.status, 200);
   assert.deepEqual(await retry.json(), firstBody);
-  const conflict = await send(new Uint8Array([0x50, 0x4b, 3, 4, 9, 9]));
+  const conflictingArchive = await makeZip([{ name: "index.html", content: Buffer.from("<!doctype html><html>different</html>") }]);
+  const conflict = await send(conflictingArchive);
   assert.equal(conflict.status, 409);
   const files = await readdir(dir);
   assert.equal(files.filter(name => name.startsWith("idem-")).length, 1);
@@ -158,7 +159,13 @@ test("source intake rejects ZIP path traversal and symbolic links", async t => {
     method: "POST", body: form(bytes),
     headers: { Authorization: "Bearer " + token, "Idempotency-Key": id },
   });
-  const traversal = await makeZip([{ name: "../outside.txt", content: Buffer.from("no") }]);
+  const traversalBase = await makeZip([{ name: "safe.txt", content: Buffer.from("no") }]);
+  const traversal = Buffer.from(traversalBase);
+  const safeName = Buffer.from("safe.txt");
+  const traversalName = Buffer.from("../x.txt");
+  for (let offset = 0; (offset = traversal.indexOf(safeName, offset)) !== -1; offset += traversalName.length) {
+    traversalName.copy(traversal, offset);
+  }
   assert.equal((await send(traversal, "00000000-0000-4000-8000-000000000002")).status, 400);
   const symlink = await makeZip([{ name: "link", content: Buffer.from("target"), mode: 0o120777 }]);
   assert.equal((await send(symlink, "00000000-0000-4000-8000-000000000003")).status, 400);
