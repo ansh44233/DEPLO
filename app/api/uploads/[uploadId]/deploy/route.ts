@@ -1,52 +1,15 @@
-import { copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ uploadId: string }> };
-const MAX_PAGES_FILES = 2_000;
-const MAX_PAGES_FILE_BYTES = 25 * 1024 * 1024;
-
-function jsonError(message: string, status: number) {
-  return NextResponse.json({ error: message }, { status });
-}
-
-async function inspectStaticDirectory(root: string): Promise<{ fileCount: number; totalBytes: number }> {
-  let fileCount = 0;
-  let totalBytes = 0;
-
-  async function visit(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error("Static deployments cannot contain symbolic links.");
-      if (entry.isDirectory()) {
-        await visit(fullPath);
-        continue;
-      }
-      if (!entry.isFile()) throw new Error("Static deployments can contain regular files and directories only.");
-
-      const details = await stat(fullPath);
-      if (details.size > MAX_PAGES_FILE_BYTES) {
-        throw new Error("Cloudflare Pages files must be 25 MiB or smaller.");
-      }
-      fileCount += 1;
-      totalBytes += details.size;
-      if (fileCount > MAX_PAGES_FILES) {
-        throw new Error("This deployment contains too many files.");
-      }
-    }
-  }
-
-  await visit(root);
-  if (fileCount === 0) throw new Error("The deployment directory is empty.");
-  return { fileCount, totalBytes };
-}
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const token = process.env.DEPLO_UPLOAD_TOKEN;
@@ -96,7 +59,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         await extractZipSafely(join(storageRoot, uploadId), outputDirectory);
       }
     } else {
-      await mkdir(outputDirectory, { recursive: false, mode: 0o700 });
+      await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
       await copyFile(join(storageRoot, uploadId), join(outputDirectory, "index.html"));
     }
 
