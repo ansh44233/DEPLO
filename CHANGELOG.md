@@ -1,21 +1,53 @@
-# Changelog
+# DEPLO
 
-All notable changes to DEPLO are documented here.
+> Bring your code. We'll handle the rest.
 
-This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0)
-and uses semantic versioning where practical.
+DEPLO is a developer-focused deployment platform concept. It aims to make shipping websites and applications simple through GitHub imports, ZIP uploads, and standalone HTML uploads.
 
-## [0.1.0] - 2026-11-21
+## Project status
+
+Early development. The current repository is being scaffolded; deployment providers, authentication, storage, and production infrastructure are not yet configured.
+
+## Planned capabilities
+
+- GitHub repository import
+- ZIP project upload
+- Standalone `index.html` upload
+- Build and deployment history
+- Live build logs
+- Project settings and environment variables
+- Custom domains and HTTPS (later phase)
+
+## Local development
+
+Requirements: Node.js 20+ and npm.
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000.
+
+## Documentation
+
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+
+## Unreleased
 
 ### Added
-- Initial Next.js application scaffold.
-- Dark deployment dashboard inspired by modern cloud developer platforms.
-- Project overview, deployment history, status indicators, and usage summary UI.
-- New-project flow for GitHub, ZIP, and standalone HTML entry points.
-- Responsive layouts for desktop, tablet, and mobile.
-- Initial project documentation and community health files.
+- Public GitHub repository inspection by repository URL.
+- Repository metadata and branch discovery through a server-side API route.
+- Branch selection and an honest preview-only workspace entry.
+- Dashboard states that distinguish a connected repository from a deployed project.
 
 ### Notes
-- GitHub OAuth, ZIP processing, build execution, provider APIs, persistence,
-  custom domains, and production deployment are not connected yet.
-- Dashboard metrics and project rows currently use demonstration data.
+- GitHub OAuth, private repository access, persistent project storage, build execution, and live deployments remain future work.
