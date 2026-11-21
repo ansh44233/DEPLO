@@ -129,10 +129,10 @@ export default function Home() {
 
         <div className="sidebar-bottom">
           <div className="usage-card">
-            <div className="usage-top"><span>Build minutes</span><span>18%</span></div>
-            <div className="usage-track"><span /></div>
-            <small>90 of 500 minutes used</small>
-            <button onClick={() => setNotice("Plan management will be added after billing is configured.")}>View usage <ArrowUpRight size={13} /></button>
+            <div className="usage-top"><span>Workspace mode</span><span>Preview</span></div>
+            <div className="preview-note">Sample projects and deployment records</div>
+            <small>No builds or hosting usage are being counted yet.</small>
+            <button onClick={() => setNotice("Billing and usage tracking will be configured after a deployment provider is connected.")}>About preview <ArrowUpRight size={13} /></button>
           </div>
           <button className="nav-item"><CircleHelp size={17} /><span>Help & support</span></button>
           <button className="nav-item"><Settings2 size={17} /><span>Settings</span></button>
@@ -148,7 +148,7 @@ export default function Home() {
         <header className="topbar">
           <div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{activeNav}</strong></div>
           <div className="topbar-actions">
-            <div className="status-pill"><span className="status-dot" /> All systems operational</div>
+            <div className="status-pill preview-pill"><span className="status-dot preview-dot" /> Preview environment</div>
             <button className="icon-button" aria-label="Search" onClick={() => document.getElementById("project-search")?.focus()}><Search size={17} /></button>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={17} /><i /></button>
             <div className="top-avatar">A</div>
@@ -158,9 +158,9 @@ export default function Home() {
         <div className="content">
           <div className="welcome-row">
             <div>
-              <div className="eyebrow"><Sparkles size={13} /> YOUR DEPLOYMENT WORKSPACE</div>
+              <div className="eyebrow"><Sparkles size={13} /> DEPLO · WORKSPACE PREVIEW</div>
               <h1>{activeNav === "Overview" ? "Good afternoon." : activeNav}</h1>
-              <p className="page-subtitle">Everything you need to ship and manage your projects.</p>
+              <p className="page-subtitle">Explore the workspace UI. Sample records are shown until deployments are connected.</p>
             </div>
             <button className="primary-button" onClick={() => setModal("github")}><Plus size={17} /> New project</button>
           </div>
@@ -169,9 +169,9 @@ export default function Home() {
 
           <div className="stats-grid">
             <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail="+1 this week" />
-            <Stat icon={<Cloud size={17} />} label="Deployments" value="24" detail="+8 this week" />
-            <Stat icon={<Activity size={17} />} label="Success rate" value="98.4%" detail="Last 30 days" />
-            <Stat icon={<Gauge size={17} />} label="Avg. build time" value="34s" detail="Across all projects" />
+            <Stat icon={<Cloud size={17} />} label="Sample deployments" value={String(deployments.length).padStart(2, "0")} detail="Illustrative records only" />
+            <Stat icon={<Activity size={17} />} label="Live deployments" value="00" detail="Provider not connected" />
+            <Stat icon={<Gauge size={17} />} label="Build pipeline" value="—" detail="Not configured yet" />
           </div>
 
           <div className="dashboard-grid">
@@ -217,7 +217,7 @@ export default function Home() {
 
           <section className="panel deployments-panel">
             <div className="panel-heading">
-              <div><h2>Recent deployments</h2><p>A timeline of what shipped to production.</p></div>
+              <div><h2>Deployment preview</h2><p>Illustrative deployment records — no real builds have run.</p></div>
               <button className="text-button" onClick={() => setActiveNav("Deployments")}>Deployment history <ArrowUpRight size={14} /></button>
             </div>
             <div className="deployment-table-wrap">
