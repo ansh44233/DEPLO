@@ -1,6 +1,6 @@
 # DEPLO Build Runner (source-intake foundation)
 
-This service is intentionally separate from the DEPLO Next.js application. It accepts authenticated source archives and stores them as private, immutable ZIP blobs. It does **not** unpack archives, install dependencies, run build scripts, or execute repository code.
+This service is intentionally separate from the DEPLO Next.js application. It accepts authenticated source archives, safely extracts each archive into a private temporary directory for validation, removes that temporary directory, and stores the original ZIP as a private immutable blob. It does **not** retain extracted source files, install dependencies, run build scripts, or execute repository code.
 
 ## Run locally
 
@@ -14,7 +14,7 @@ PORT=8788 npx tsx services/build-runner/src/server.ts
 
 The HTTP server limits headers to 15 seconds, request-body receipt to 120 seconds, keep-alive to 5 seconds, header size to 16 KiB, header count to 50, and requests per socket to 100. These limits reduce slow-client and oversized-header exposure; they do not replace network-level rate limiting.
 
-The process exposes `GET /healthz` and authenticated `POST /v1/sources`. Source intake accepts the multipart contract documented in `docs/BUILD_RUNNER.md`, caps the body, validates metadata and ZIP magic bytes, and persists a SHA-256-bound source ID. Repeating the same idempotency key and exact source returns the same ID; a conflicting retry returns 409.
+The process exposes `GET /healthz` and authenticated `POST /v1/sources`. Source intake accepts the multipart contract documented in `docs/BUILD_RUNNER.md`, caps the body, validates metadata and ZIP structure, then applies safe extraction checks for traversal, duplicate paths, symlinks, special files, entry count, expanded size, and compression ratio before persisting a SHA-256-bound source ID. Repeating the same idempotency key and exact source returns the same ID; a conflicting retry returns 409.
 
 The source directory must be on a private persistent filesystem with access restricted to the runner service account. Do not mount it into build containers.\n\nAn authenticated `POST /v1/maintenance/cleanup` removes source archives older than seven days and their matching idempotency records. Each invocation removes at most 100 sources; schedule it periodically from trusted infrastructure. Recent sources are retained. The endpoint returns removed source/record counts and bytes freed.
 
