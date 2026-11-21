@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchesWebhookProject } from "../../lib/github/webhook-worker";
+import { getWebhookRetryDelaySeconds, matchesWebhookProject } from "../../lib/github/webhook-worker";
 
 const project = {
   id: "project-1",
@@ -23,4 +23,14 @@ test("rejects a different branch or repository", () => {
 test("rejects non-GitHub and non-GitHub-source projects", () => {
   assert.equal(matchesWebhookProject({ ...project, repository_url: "https://example.com/repo" }, "example/website", "main"), false);
   assert.equal(matchesWebhookProject({ ...project, source_type: "zip" }, "example/website", "main"), false);
+});
+
+test("uses capped exponential retry delays", () => {
+  assert.equal(getWebhookRetryDelaySeconds(0), 30);
+  assert.equal(getWebhookRetryDelaySeconds(1), 30);
+  assert.equal(getWebhookRetryDelaySeconds(2), 60);
+  assert.equal(getWebhookRetryDelaySeconds(3), 120);
+  assert.equal(getWebhookRetryDelaySeconds(5), 480);
+  assert.equal(getWebhookRetryDelaySeconds(8), 3600);
+  assert.equal(getWebhookRetryDelaySeconds(99), 3600);
 });

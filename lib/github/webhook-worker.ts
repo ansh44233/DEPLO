@@ -19,3 +19,8 @@ export function matchesWebhookProject(
   if (!parsed) return false;
   return (parsed.owner + "/" + parsed.repository).toLowerCase() === repositoryFullName.toLowerCase();
 }
+
+export function getWebhookRetryDelaySeconds(attemptCount: number): number {
+  if (!Number.isInteger(attemptCount) || attemptCount < 1) return 30;
+  return Math.min(3600, 30 * 2 ** Math.min(attemptCount - 1, 7));
+}

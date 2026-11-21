@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
-type Delivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string };
+type Delivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; attempt_count: number };
 type Project = WebhookProjectCandidate;
 
 function error(message: string, status: number) {
@@ -61,35 +61,19 @@ async function db<T>(url: URL, key: string, init: RequestInit): Promise<T> {
   return await response.json() as T;
 }
 
-function endpoint(baseUrl: string, table: string, query: Record<string, string>) {
+function endpoint(baseUrl: string, table: string, query: Record<string, string> = {}) {
   const url = new URL("/rest/v1/" + table, baseUrl);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   return url;
 }
 
 async function claimDelivery(baseUrl: string, key: string): Promise<Delivery | null> {
-  const pending = await db<Delivery[]>(
-    endpoint(baseUrl, "github_webhook_deliveries", {
-      select: "delivery_id,repository_full_name,branch,commit_sha",
-      status: "eq.received",
-      order: "received_at.asc",
-      limit: "1",
-    }),
+  const rows = await db<Delivery[]>(
+    endpoint(baseUrl, "rpc/claim_next_github_webhook_delivery"),
     key,
-    { method: "GET" },
+    { method: "POST", body: "{}" },
   );
-  const next = pending[0];
-  if (!next) return null;
-  const claimed = await db<Delivery[]>(
-    endpoint(baseUrl, "github_webhook_deliveries", {
-      select: "delivery_id,repository_full_name,branch,commit_sha",
-      delivery_id: "eq." + next.delivery_id,
-      status: "eq.received",
-    }),
-    key,
-    { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "processing" }) },
-  );
-  return claimed[0] ?? null;
+  return rows[0] ?? null;
 }
 
 async function setDeliveryStatus(
@@ -100,15 +84,14 @@ async function setDeliveryStatus(
   errorCode?: string,
 ) {
   await db<unknown[]>(
-    endpoint(baseUrl, "github_webhook_deliveries", { delivery_id: "eq." + deliveryId }),
+    endpoint(baseUrl, "rpc/finish_github_webhook_delivery"),
     key,
     {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
+      method: "POST",
       body: JSON.stringify({
-        status,
-        processed_at: new Date().toISOString(),
-        error_code: errorCode ?? null,
+        p_delivery_id: deliveryId,
+        p_status: status,
+        p_error_code: errorCode ?? null,
       }),
     },
   );
@@ -177,7 +160,7 @@ export async function POST(request: NextRequest) {
     );
     const matches = projects.filter((project) => matchesWebhookProject(project, delivery!.repository_full_name, delivery!.branch));
     if (matches.length === 0) {
-      await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "ignored", "no_matching_project");
+      await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "ignored");
       return NextResponse.json({ processed: true, deployed: 0, ignored: true }, { headers: { "Cache-Control": "no-store" } });
     }
 
