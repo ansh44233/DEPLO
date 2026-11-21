@@ -46,7 +46,10 @@ export async function POST(request: NextRequest) {
         await scheduleRunnerPoll(pollJob.id, status.status, status.status === "queued" ? 15 : 10);
         return response({ processed: true, action: "polled", jobId: pollJob.id, runnerStatus: status.status });
       }
-      if (status.status === "failed") {
+      if (!("result" in status)) {
+        return response({ processed: true, action: "poll-retry", jobId: pollJob.id, error: "runner_invalid_response" }, 502);
+      }
+      if (status.result.status === "failed") {
         await finishBuildJob(pollJob.id, "failed", status.result.errorCode);
         return response({ processed: true, action: "failed", jobId: pollJob.id, retryScheduled: pollJob.attempt_count < pollJob.max_attempts });
       }
