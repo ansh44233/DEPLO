@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Streaming ZIP extraction into private per-upload directories with path traversal, duplicate-path, symlink, entry-count, expanded-size, and compression-ratio checks.
+- Authenticated ZIP extraction endpoint and integration tests for successful extraction, malformed archives, archive bombs, and symbolic links.
 - Authenticated server-side upload endpoint with private local filesystem storage and metadata sidecars for ZIP and HTML files.
 - Shared bearer-token validation using constant-time comparison and server-side upload configuration.
 - Server-side content checks, request-size limits, and upload authentication tests.
@@ -21,5 +23,5 @@ All notable changes to DEPLO are documented here.
 - Dashboard labels distinguish preview data from real deployments and usage.
 
 ### Notes
-- Upload preflight is not file transfer or deployment. Object storage, per-user authentication, safe ZIP extraction, build execution, and hosting-provider integration remain future work.
+- Upload preflight is not file transfer or deployment. Object storage, per-user authentication, build execution and hosting-provider integration remain future work.
 - Public GitHub repository selection remains a preview-only integration; OAuth, private repositories, and deployment execution are not connected yet.

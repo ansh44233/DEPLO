@@ -1,16 +1,21 @@
 # Upload archive safety policy
 
-DEPLO treats uploaded archives as untrusted input. Before any archive is extracted, the server-side pipeline must:
+DEPLO treats every uploaded archive as untrusted input. ZIP files are stored as opaque bytes until an authenticated extraction request is made.
 
-1. Reject absolute paths, drive-prefixed paths, parent-directory traversal, backslashes, control characters, and malformed path segments.
-2. Limit archives to 2,000 entries.
-3. Limit total expanded content to 100 MiB.
-4. Reject any entry with a compression ratio above 100:1.
-5. Validate actual decompressed byte counts while streaming; metadata checks alone are not sufficient.
-6. Extract only into an isolated per-upload workspace and ensure resolved destinations remain inside that workspace.
-7. Never execute user-provided build commands on the web application server. Builds require a separate sandbox with CPU, memory, process, network, and time limits.
+## Enforced extraction controls
 
-The authenticated upload endpoint stores original ZIP/HTML bytes in a private local directory on a persistent Node.js host. It does not parse or extract ZIP files, execute user code, or deploy sites. The archive-policy module implements pure metadata/path checks and is covered by unit tests. A future extractor must enforce these rules again while processing actual archive data, because archive metadata is untrusted.
+The server-side extractor:
+
+1. Rejects absolute paths, drive-prefixed paths, parent-directory traversal, backslashes, control characters, and malformed path segments.
+2. Limits archives to 2,000 entries.
+3. Limits total expanded content to 100 MiB.
+4. Rejects any entry with a compression ratio above 100:1.
+5. Rejects duplicate paths, symbolic links, and special filesystem entries.
+6. Validates actual decompressed byte counts while streaming; metadata checks alone are not trusted.
+7. Extracts into a new private directory using restrictive permissions and removes partial output if extraction fails.
+8. Never executes user-provided build commands. Build execution requires a separate sandbox with CPU, memory, process, network, and time limits.
+
+The extractor uses the ZIP central directory for metadata and streams entry contents instead of buffering entire expanded files. It still requires operational limits at the hosting layer, including request timeouts, disk quotas, rate limiting, and cleanup.
 
 ## Upload storage configuration
 
@@ -18,3 +23,7 @@ The authenticated upload endpoint stores original ZIP/HTML bytes in a private lo
 - Optionally configure `DEPLO_UPLOAD_DIR` to a private persistent directory outside the public web root.
 - Local filesystem storage is intended for a persistent Node.js host. Ephemeral serverless filesystems are not supported by this adapter.
 - The current bearer token is a shared gate, not account-level authorization. Do not expose the endpoint publicly until account authentication, per-user quotas, rate limiting, and cleanup are added.
+
+## Current limitations
+
+Extraction output remains private and cannot yet be served as a deployed website. Project ownership, account authentication, quotas, cleanup, object storage, build execution, deployment providers, and live deployment URLs remain future work.
