@@ -41,6 +41,14 @@ npm run dev
 
 Open http://localhost:3000.
 
+Run the automated test suite with:
+
+```bash
+npm test
+```
+
+The GitHub repository inspection endpoint only accepts canonical public GitHub repository URLs. It does not provide private repository access or deployment execution.
+
 ## Documentation
 
 - [Changelog](CHANGELOG.md)

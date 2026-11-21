@@ -51,3 +51,15 @@ MIT. See [LICENSE](LICENSE).
 
 ### Notes
 - GitHub OAuth, private repository access, persistent project storage, build execution, and live deployments remain future work.
+
+
+## Unreleased
+
+### Security
+- Strictly validate public GitHub repository URLs before making outbound requests.
+- Reject non-HTTPS, lookalike hosts, credentials, custom ports, query strings, fragments, encoded path separators, and non-root paths.
+- Add an eight-second timeout to GitHub API requests and explicit timeout handling.
+
+### Tests and CI
+- Add unit tests for accepted and rejected GitHub repository URL formats.
+- Run the test suite in GitHub Actions before typechecking and building.
