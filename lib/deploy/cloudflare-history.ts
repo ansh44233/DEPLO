@@ -121,3 +121,46 @@ export async function rollbackCloudflarePagesDeployment(
   }
   return deployment;
 }
+
+
+export type CloudflareDeploymentLog = {
+  timestamp: string | null;
+  line: string;
+};
+
+export async function getCloudflarePagesDeploymentLogs(
+  config: CloudflarePagesConfig,
+  deploymentId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<CloudflareDeploymentLog[]> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deploymentId)) {
+    throw new Error("Invalid Cloudflare deployment ID.");
+  }
+
+  const endpoint = new URL(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/pages/projects/${encodeURIComponent(config.projectName)}/deployments/${encodeURIComponent(deploymentId)}/history/logs`,
+  );
+  const response = await fetcher(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Cloudflare Pages deployment logs could not be loaded.");
+
+  const payload = await response.json() as CloudflareApiResponse;
+  if (payload.success !== true || !isRecord(payload.result) || !Array.isArray(payload.result.data)) {
+    throw new Error("Cloudflare Pages returned an invalid deployment logs response.");
+  }
+
+  return payload.result.data.slice(-300).flatMap((item) => {
+    if (!isRecord(item) || typeof item.line !== "string") return [];
+    return [{
+      timestamp: textOrNull(item.ts),
+      line: item.line.slice(0, 2_000),
+    }];
+  });
+}
