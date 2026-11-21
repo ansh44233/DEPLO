@@ -6,14 +6,14 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. Public GitHub repository inspection and an authenticated local upload-storage endpoint are implemented. Per-user authentication, object storage, builds, deployment providers, and production infrastructure are not yet configured.
+Early development. Public GitHub repository inspection, GitHub account sign-in, and an authenticated local upload-storage endpoint are implemented. Database-backed project ownership, account-scoped authorization, object storage, builds, and production infrastructure are not yet configured.
 
 ## Current GitHub import preview
 
 The dashboard can inspect **public GitHub repositories** by URL, retrieve repository metadata and available branches, and add a selected branch to the in-browser dashboard preview.
 
 This is an early integration milestone, not a production deployment pipeline:
-- Private repositories and GitHub OAuth are not connected yet.
+- Private repository access is not connected yet. GitHub OAuth sign-in establishes account identity only; it does not yet grant private-repository access.
 - The selected repository is held in client-side preview state and is not saved to an account database.
 - Selecting a repository does not run a build or publish a live URL.
 - GitHub's unauthenticated API rate limits apply.
@@ -149,3 +149,17 @@ MIT. See [LICENSE](LICENSE).
 The unauthenticated `GET /api/deploy/status` endpoint reports whether the server has the Cloudflare Pages settings and upload authentication required for deployment. It returns configuration booleans and missing setting names only; secret values are never returned. The response is marked `Cache-Control: no-store`.
 
 A `ready: true` response confirms that required environment variables are present and syntactically valid. It does not verify that the Cloudflare token is accepted by Cloudflare or that the Pages project exists.
+
+
+## GitHub sign-in (identity foundation)
+
+DEPLO includes a server-side GitHub OAuth sign-in flow:
+- OAuth state is generated per attempt, stored in a short-lived HttpOnly cookie, and checked before the callback is accepted.
+- The callback exchanges the authorization code server-side and retrieves the GitHub profile.
+- A seven-day HMAC-signed session cookie is HttpOnly, SameSite=Lax, and Secure in production.
+- Only the minimal GitHub profile is included in the session. The OAuth access token is not stored in the cookie or persisted by this flow.
+- `GET /api/auth/session` returns the current signed-in profile; `POST /api/auth/logout` clears the session after checking the request origin.
+
+Configure a GitHub OAuth App with callback URL `https://YOUR_DEPLO_HOST/api/auth/github/callback`, then set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `DEPLO_SESSION_SECRET` (a separate random secret of at least 32 characters), and `DEPLO_BASE_URL` on the server. Never expose these values through `NEXT_PUBLIC_` variables.
+
+**Important scope limit:** this is account identity only. It does not yet provide a database, per-user project ownership, private-repository access, encrypted OAuth-token storage, or account-scoped deployment authorization. Existing deployment endpoints still use the server-side shared upload token and must not be called directly from browser code. Configure a persistent database and ownership checks before treating DEPLO as a multi-user production service.
