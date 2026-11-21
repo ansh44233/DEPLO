@@ -61,6 +61,21 @@ curl -X POST "http://localhost:3000/api/uploads/<upload-id>/extract" \\
 
 The endpoint rejects unsafe paths, duplicate paths, symbolic links and special files, oversized archives, and excessive compression ratios. It streams entries to disk and enforces the actual expanded-byte limit. Extracted files are not publicly served and are not executed.
 
+## Deploy a public GitHub repository
+
+DEPLO can download a selected branch from a **public** GitHub repository and publish it as a static Cloudflare Pages site.
+
+```bash
+curl -X POST "http://localhost:3000/api/github/deploy" \
+  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"repositoryUrl":"https://github.com/owner/repository","branch":"main","projectSlug":"my-site"}'
+```
+
+The endpoint downloads the GitHub ZIP archive from GitHub's fixed API host, enforces a 25 MiB download limit, applies the same safe ZIP extraction policy as uploads, requires a root `index.html`, checks static asset limits and blocked secret/config paths, then deploys through the configured Cloudflare Pages project. It returns the deployment URL.
+
+**Current scope:** public repositories and static HTML/CSS/JS only. Private repositories, framework build commands, per-user project ownership, and automatic redeployment on Git pushes are not yet supported. DEPLO does not execute repository scripts.
+
 ## Cloudflare Pages static deployment (early milestone)
 
 The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through Wrangler.
