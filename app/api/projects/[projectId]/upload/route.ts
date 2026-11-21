@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
-import { deployStaticDirectory, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
+import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { hasHtmlDocument, hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "@/lib/uploads/validate-upload";
@@ -45,8 +46,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("Only ZIP and standalone HTML projects can use this upload endpoint.", 422);
   }
 
-  const config = readCloudflarePagesConfig();
+  const config = readCloudflarePagesCredentials();
   if (!config) return jsonError("Cloudflare Pages deployment is not configured on the server.", 503);
+  let pagesTarget: ReturnType<typeof getAccountPagesTarget>;
+  try {
+    pagesTarget = getAccountPagesTarget(config, user.id, project.slug);
+  } catch {
+    return jsonError("The account project cannot be mapped to a valid Cloudflare Pages project.", 422);
+  }
 
   const declaredLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_ZIP_BYTES + 64 * 1024) {
@@ -93,7 +100,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return jsonError("The site must contain a root index.html file. DEPLO currently publishes static sites only.", 422);
     }
     const assets = await inspectStaticDirectory(outputDirectory);
-    const deployment = await deployStaticDirectory(outputDirectory, "site-" + project.slug, config);
+    await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
+    const deployment = await deployStaticDirectory(outputDirectory, pagesTarget.productionBranch, pagesTarget.config);
 
     let savedProject;
     try {
