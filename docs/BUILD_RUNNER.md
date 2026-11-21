@@ -16,6 +16,12 @@ The default request limits are:
 
 A future runner adapter must enforce these limits outside the DEPLO web process. Merely including limits in a request is not enforcement.
 
+## Runner transport client
+
+`lib/deploy/isolated-build-runner.ts` sends the bounded request to the configured runner over HTTPS. It uses a server-only bearer token, refuses redirects, omits cookies, bounds the response size, and validates the returned artifact metadata. It never forwards Cloudflare, Supabase, GitHub App, or session credentials.
+
+This is a transport client only. No build queue worker calls it yet, and it does not download or publish artifacts. A successful runner response is not sufficient to publish until the artifact is fetched through an authenticated artifact channel and independently inspected.
+
 ## Required runner isolation
 
 Before enabling a real runner, its implementation must provide:
@@ -30,12 +36,10 @@ Before enabling a real runner, its implementation must provide:
 
 ## Configuration
 
-The contract recognizes server-only settings:
-
 - `DEPLO_BUILD_RUNNER_URL`: HTTPS endpoint for the isolated runner (localhost is permitted for local development only).
 - `DEPLO_BUILD_RUNNER_TOKEN`: random token of at least 32 characters.
 
-These settings only describe a future runner connection. There is currently no runner dispatch or execution endpoint, and setting them does not enable framework builds. Do not add either variable to a `NEXT_PUBLIC_` setting.
+These settings only configure transport to a runner. There is no runner implementation or queue dispatch yet. Do not add either variable to a `NEXT_PUBLIC_` setting.
 
 ## Current behavior
 
