@@ -97,7 +97,7 @@ Signed-in users can upload a ZIP archive or a standalone HTML document directly 
 - The dashboard validates the selected file locally, creates or reuses a matching account project, and sends the file to `POST /api/projects/{projectId}/upload`.
 - The server verifies the signed GitHub session and confirms the project belongs to that account before accepting the upload.
 - ZIP archives are safely extracted into a temporary private directory. HTML uploads are written as the site's root `index.html`.
-- Both paths require a root `index.html`, enforce static asset limits and blocked-path checks, publish to the configured Cloudflare Pages project on `site-{project-slug}`, and save the resulting URL to the project record.
+- Both paths require a root `index.html`, enforce static asset limits and blocked-path checks, provision a dedicated Cloudflare Pages project for the account-owned project, deploy to its `site-{project-slug}` production branch, and save the resulting URL to the project record.
 - ZIP uploads are limited to 25 MiB; standalone HTML uploads are limited to 2 MiB. Temporary files are removed after the deployment attempt.
 
 This is a static publishing flow, not a build system. It does not run user-provided scripts or framework build commands. It requires the signed-in session, Supabase project storage, and Cloudflare Pages credentials to be configured on the server.
@@ -110,14 +110,14 @@ This is a static publishing flow, not a build system. It does not run user-provi
 - The dashboard provides a deployment-log viewer for each listed deployment.
 - `POST /api/projects/{projectId}/deployments/{deploymentId}/rollback` is owner-scoped and only permits successful **production** deployments belonging to the project.
 
-**Rollback limitation:** Cloudflare only rolls back successful production deployments. DEPLO currently publishes projects to dedicated Pages preview branches named `site-{project-slug}`, so those preview deployments are not valid rollback targets. The API deliberately rejects preview deployments instead of implying that rollback succeeded. Supporting rollback for every DEPLO project requires changing the hosting layout so each project has its own production deployment target.
+Cloudflare only rolls back successful production deployments. DEPLO now provisions a separate Pages project for each account-owned project and configures `site-{project-slug}` as that Pages project's production branch. This makes successful deployments eligible for the guarded rollback endpoint. Existing projects are provisioned on their next deployment; deployments from the former shared Pages project are not automatically migrated.
 
 ## Account-owned GitHub project deployments
 
 When a user is signed in and Supabase plus Cloudflare Pages are configured, DEPLO can deploy a saved public GitHub project through its account-owned project record:
 
 - `POST /api/projects/{projectId}/deploy` verifies the signed GitHub session, looks up the project using both its UUID and the session's GitHub account ID, downloads the saved public repository branch, safely extracts it, checks static assets, and publishes it to the configured Cloudflare Pages project.
-- Each project uses a dedicated Pages preview branch named `site-{project-slug}`.
+- Each account-owned project gets a dedicated Cloudflare Pages project, with `site-{project-slug}` configured as its production branch. Project names are deterministically derived from the GitHub account ID and project slug to avoid cross-account name collisions.
 - After a successful publish, DEPLO saves the deployment URL and update timestamp to that same account-owned project record.
 - `GET /api/deploy/history?projectId={projectId}` verifies ownership before returning Cloudflare deployment history for that project's Pages branch.
 
@@ -142,7 +142,7 @@ curl -X POST "http://localhost:3000/api/uploads/<upload-id>/deploy" \
   -d '{"projectSlug":"my-website"}'
 ```
 
-DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a Pages preview branch (for example, `site-my-website`). The returned URL comes from Wrangler/Cloudflare.
+DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a production branch (for example, `site-my-website`) inside that project's isolated Cloudflare Pages project. The returned URL comes from Wrangler/Cloudflare.
 
 This integration requires a configured Cloudflare account and a pre-created Pages project. No live provider deployment has been performed from this repository yet. Per-user accounts, project ownership, usage billing, cleanup, build execution, GitHub private-repository OAuth, and custom domains remain future work.
 
