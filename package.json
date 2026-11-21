@@ -7,14 +7,15 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/github/*.test.ts tests/uploads/*.test.ts"
+    "test": "tsx --test tests/github/*.test.ts tests/uploads/*.test.ts tests/deploy/*.test.ts"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "next": "^15.5.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "yauzl": "^3.4.0"
+    "yauzl": "^3.4.0",
+    "wrangler": "4.165.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",

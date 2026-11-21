@@ -5,6 +5,9 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Cloudflare Pages static deployment adapter using a pinned Wrangler CLI and server-side credentials.
+- Authenticated deployment endpoint for ZIP and standalone HTML uploads, returning the provider's live Pages URL.
+- Static asset checks for file count, per-file/total size, symlinks, and common private configuration paths.
 - Streaming ZIP extraction into private per-upload directories with path traversal, duplicate-path, symlink, entry-count, expanded-size, and compression-ratio checks.
 - Authenticated ZIP extraction endpoint and integration tests for successful extraction, malformed archives, archive bombs, and symbolic links.
 - Authenticated server-side upload endpoint with private local filesystem storage and metadata sidecars for ZIP and HTML files.
