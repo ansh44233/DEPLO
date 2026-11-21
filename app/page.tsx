@@ -34,6 +34,11 @@ type CloudflareDeployment = {
 };
 
 type SignedInUser = { id: number; login: string; name: string | null; avatarUrl: string | null };
+type AccountProject = {
+  id: string; name: string; slug: string; source_type: "github" | "zip" | "html";
+  repository_url: string | null; branch: string | null; deployment_url: string | null;
+  created_at: string; updated_at: string;
+};
 
 type Project = {
   name: string;
@@ -75,6 +80,9 @@ export default function Home() {
   const [historyError, setHistoryError] = useState("");
   const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState("");
+  const [projectSaving, setProjectSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +117,41 @@ export default function Home() {
   }, [refreshDeploymentHistory]);
 
   useEffect(() => {
+    if (!signedInUser) return;
+    let cancelled = false;
+    setProjects([]);
+    setProjectsLoading(true);
+    setProjectsError("");
+    fetch("/api/projects", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not load your saved projects.");
+        return data as { projects: AccountProject[] };
+      })
+      .then((data) => {
+        if (cancelled) return;
+        const owned = data.projects.map((project): Project => ({
+          name: project.name,
+          domain: project.deployment_url || "Not deployed yet",
+          source: project.source_type === "github"
+            ? project.repository_url?.replace("https://", "") || "GitHub repository"
+            : project.source_type === "zip" ? "ZIP upload" : "index.html",
+          branch: project.branch || "—",
+          status: project.deployment_url ? "Healthy" : "Connected",
+          updated: new Date(project.updated_at).toLocaleString(),
+          accent: "violet",
+        }));
+        setProjects(owned);
+        setActiveProject(owned[0]?.name ?? "");
+      })
+      .catch((error) => {
+        if (!cancelled) setProjectsError(error instanceof Error ? error.message : "Could not load your saved projects.");
+      })
+      .finally(() => { if (!cancelled) setProjectsLoading(false); });
+    return () => { cancelled = true; };
+  }, [signedInUser]);
+
+  useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/session", { cache: "no-store" })
       .then(async (response) => {
@@ -119,7 +162,7 @@ export default function Home() {
       .catch(() => { if (!cancelled) setSignedInUser(null); })
       .finally(() => { if (!cancelled) setAuthLoading(false); });
     const authResult = new URLSearchParams(window.location.search).get("auth");
-    if (authResult === "success") setNotice("Signed in with GitHub. Account-owned projects are not enabled yet.");
+    if (authResult === "success") setNotice("Signed in with GitHub. Your saved projects are loading.");
     if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
     if (authResult) window.history.replaceState({}, "", window.location.pathname);
     return () => { cancelled = true; };
@@ -130,6 +173,9 @@ export default function Home() {
       const response = await fetch("/api/auth/logout", { method: "POST" });
       if (!response.ok) throw new Error("Sign-out failed.");
       setSignedInUser(null);
+      setProjects(initialProjects);
+      setActiveProject("frontend");
+      setProjectsError("");
       setNotice("You have signed out of DEPLO.");
     } catch {
       setNotice("Could not sign out. Please try again.");
@@ -138,7 +184,10 @@ export default function Home() {
 
 
 
-  const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
+  const selected = projects.find((project) => project.name === activeProject) ?? projects[0] ?? {
+    name: "No project selected", domain: "—", source: "—", branch: "—",
+    status: "Connected" as const, updated: "—", accent: "violet",
+  };
   const displayDeployments = cloudflareDeployments.map((deployment) => ({
     id: deployment.id,
     project: deployment.environment,
@@ -167,17 +216,40 @@ export default function Home() {
     } finally { setRepoLoading(false); }
   }
 
-  function addRepositoryPreview() {
+  async function addRepositoryPreview() {
     if (!repoInfo) return;
     const projectName = repoInfo.fullName.split("/")[1].toLowerCase();
+    const slug = projectName.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58);
     const newProject: Project = {
       name: projectName, domain: "Not deployed yet",
       source: "github.com/" + repoInfo.fullName, branch: repoBranch,
       status: "Connected", updated: "Just now", accent: "violet",
     };
+    if (signedInUser) {
+      setProjectSaving(true);
+      try {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: projectName, slug, sourceType: "github", repositoryUrl: repoInfo.url, branch: repoBranch }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not save this project.");
+        setProjects((current) => [newProject, ...current.filter((project) => project.name !== projectName)]);
+        setActiveProject(projectName);
+        setActiveNav("Projects");
+        setNotice("Project saved to your GitHub account. It has not been deployed yet.");
+        setModal(null);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not save this project.");
+      } finally {
+        setProjectSaving(false);
+      }
+      return;
+    }
     setProjects((current) => [newProject, ...current.filter((project) => project.name !== projectName)]);
     setActiveProject(projectName); setActiveNav("Projects");
-    setNotice("Repository added to this dashboard preview. It is not saved to an account or deployed yet.");
+    setNotice("Repository added to this dashboard preview. Sign in and configure Supabase to save projects to your account.");
     setModal(null);
   }
 
@@ -299,7 +371,7 @@ export default function Home() {
           </section>
 
           <div className="stats-grid">
-            <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail="+1 this week" />
+            <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail={signedInUser ? "Saved to your account" : "Preview workspace"} />
             <Stat icon={<Cloud size={17} />} label="Deployments" value={String(cloudflareDeployments.length).padStart(2, "0")} detail={historyLoading ? "Loading provider records" : historyError ? "Provider history unavailable" : "Cloudflare Pages records"} />
             <Stat icon={<Activity size={17} />} label="Live deployments" value={String(cloudflareDeployments.filter((deployment) => deployment.status === "success").length).padStart(2, "0")} detail="Successful provider deployments" />
             <Stat icon={<Gauge size={17} />} label="Build pipeline" value="—" detail="Not configured yet" />
@@ -315,8 +387,10 @@ export default function Home() {
                 <div className="search-field"><Search size={15} /><input id="project-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search projects..." /></div>
                 <button className="filter-button"><span>All projects</span><ChevronDown size={14} /></button>
               </div>
+              {projectsError && <div className="repo-error" role="alert">{projectsError}</div>}
               <div className="project-list">
-                {filteredProjects.map((project) => (
+                {projectsLoading && <div className="empty-state">Loading your saved projects…</div>}
+                {!projectsLoading && filteredProjects.map((project) => (
                   <button key={project.name} className={`project-row ${activeProject === project.name ? "selected" : ""}`} onClick={() => setActiveProject(project.name)}>
                     <div className={`project-icon ${project.accent}`}><Code2 size={18} /></div>
                     <div className="project-main"><strong>{project.name}</strong><small>{project.source}</small></div>
@@ -325,7 +399,7 @@ export default function Home() {
                     <ChevronRight className="row-chevron" size={16} />
                   </button>
                 ))}
-                {filteredProjects.length === 0 && <div className="empty-state">No projects match your search.</div>}
+                {!projectsLoading && !projectsError && filteredProjects.length === 0 && <div className="empty-state">{signedInUser ? "No saved projects yet. Import a repository to get started." : "No projects match your search."}</div>}
               </div>
               <button className="add-project-row" onClick={() => setModal("github")}><Plus size={16} /> Add a project</button>
             </section>
@@ -392,8 +466,8 @@ export default function Home() {
               <div className="repo-meta"><span>{repoInfo.language || "Unknown language"}</span><span>★ {repoInfo.stars.toLocaleString()} stars</span><span>{repoInfo.branches.length} branches listed</span></div>
               <label className="repo-label" htmlFor="repo-branch">Deployment branch</label>
               <select id="repo-branch" value={repoBranch} onChange={(event) => setRepoBranch(event.target.value)}>{repoInfo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.name === repoInfo.defaultBranch ? " (default)" : ""}</option>)}</select>
-              <button className="primary-button repo-confirm" onClick={addRepositoryPreview}>Add repository to dashboard <ArrowUpRight size={15} /></button>
-              <p className="repo-help">This adds a preview entry only. Build execution, automatic deployments, and persistent account storage are upcoming steps.</p>
+              <button className="primary-button repo-confirm" onClick={() => void addRepositoryPreview()} disabled={projectSaving}>{projectSaving ? "Saving project…" : signedInUser ? "Save project to account" : "Add repository to dashboard"} <ArrowUpRight size={15} /></button>
+              <p className="repo-help">{signedInUser ? "This saves repository metadata to your account. Deployment and automatic redeploys are separate steps." : "This adds a temporary preview entry. Sign in to save projects to an account."}</p>
             </div>}
           </div> : <div className="upload-zone"><input type="file" accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => void startUpload(event.target.files?.[0], modal === "upload" ? "zip" : "html")} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP archive · maximum 25 MB" : "HTML document · maximum 2 MB"}</span>{uploadError && <p className="repo-error" role="alert">{uploadError}</p>}<button className="primary-button" onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}><ArrowDownToLine size={16} /> Browse files</button></div>}
           <div className="modal-foot"><ShieldCheck size={14} /> Your code stays yours. Provider connections are not configured yet.</div>
