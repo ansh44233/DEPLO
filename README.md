@@ -230,3 +230,21 @@ This is the persistence/API foundation. When signed in, the dashboard loads acco
 Deleting an account-owned project verifies the signed GitHub session and project ownership, derives the isolated Cloudflare Pages project name from that owner and project slug, and removes the hosted Pages project before deleting the DEPLO database record. This also removes the site's deployments and provider history. The dashboard displays a destructive confirmation before submitting the request.
 
 If Cloudflare deletion fails, DEPLO keeps the database project record so the owner can retry. If Cloudflare has already removed the site but the database deletion fails, retrying is safe because a missing Pages project is treated as already removed. Projects that were never deployed do not require a Cloudflare cleanup request.
+
+
+## GitHub push webhook inbox
+
+DEPLO exposes `POST /api/webhooks/github` for GitHub `push` events. Configure a repository webhook with:
+- Payload URL: `https://YOUR_DEPLO_HOST/api/webhooks/github`
+- Content type: `application/json`
+- Secret: the server-only `DEPLO_GITHUB_WEBHOOK_SECRET` value (at least 32 characters)
+- Event: **Just the push event**
+
+Apply `supabase/migrations/0002_github_webhook_deliveries.sql` before enabling the endpoint. The receiver validates GitHub's SHA-256 HMAC signature against the raw request body, bounds payload size, validates repository/branch/commit fields, ignores branch deletions, and stores each delivery ID under a unique constraint so GitHub retries are idempotent.
+
+Required server environment:
+- `DEPLO_GITHUB_WEBHOOK_SECRET`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+**Current scope:** this endpoint securely records push events in the private database inbox and returns `202 Accepted`. It does not yet build or deploy a site. A separately authenticated queue worker and project-to-repository matching are required for automatic redeployment; do not interpret `queued: true` as a completed deployment.
