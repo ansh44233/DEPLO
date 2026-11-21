@@ -163,3 +163,16 @@ DEPLO includes a server-side GitHub OAuth sign-in flow:
 Configure a GitHub OAuth App with callback URL `https://YOUR_DEPLO_HOST/api/auth/github/callback`, then set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `DEPLO_SESSION_SECRET` (a separate random secret of at least 32 characters), and `DEPLO_BASE_URL` on the server. Never expose these values through `NEXT_PUBLIC_` variables.
 
 **Important scope limit:** this is account identity only. It does not yet provide a database, per-user project ownership, private-repository access, encrypted OAuth-token storage, or account-scoped deployment authorization. Existing deployment endpoints still use the server-side shared upload token and must not be called directly from browser code. Configure a persistent database and ownership checks before treating DEPLO as a multi-user production service.
+
+
+## Account-owned project storage (API foundation)
+
+DEPLO can store project metadata in Supabase Postgres and scope project list/create operations to the GitHub account in the signed session:
+- `GET /api/projects` lists only rows whose `owner_github_id` matches the verified session.
+- `POST /api/projects` creates a project using the session's GitHub user ID; the owner ID is never accepted from the request body.
+- Project slugs are unique per account. GitHub source URLs and branch names are validated before storage.
+- The service-role key is used only on the server. The projects table has RLS enabled and no anonymous/authenticated policies.
+
+To configure it, create a Supabase project, run [`supabase/migrations/0001_account_projects.sql`](supabase/migrations/0001_account_projects.sql) in the SQL editor, and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server. Never expose the service-role key through a `NEXT_PUBLIC_` variable.
+
+This is the persistence/API foundation. The dashboard project list is still a preview and is not yet connected to these endpoints. Deployment routes are also not yet scoped to project ownership; keep them behind the existing server-side token and do not expose that token to browsers.
