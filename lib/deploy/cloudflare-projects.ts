@@ -47,8 +47,8 @@ export function getAccountPagesTarget(
   const suffix = createHash("sha256")
     .update(String(ownerGithubId) + ":" + projectSlug)
     .digest("hex")
-    .slice(0, 12);
-  const projectName = "deplo-" + suffix + "-" + projectSlug.slice(0, 44);
+    .slice(0, 16);
+  const projectName = "deplo-" + suffix + "-" + projectSlug.slice(0, 40);
   const productionBranch = "site-" + projectSlug;
 
   return {
