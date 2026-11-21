@@ -19,9 +19,9 @@ function getCallbackUrl(): string | null {
 export async function GET() {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const callbackUrl = getCallbackUrl();
-  if (!clientId || !process.env.GITHUB_CLIENT_SECRET || !callbackUrl || (process.env.DEPLO_SESSION_SECRET?.length ?? 0) < 32) {
+  if (!clientId || !process.env.GITHUB_CLIENT_SECRET || !callbackUrl || (process.env.DEPLO_SESSION_SECRET?.length ?? 0) < 32 || (process.env.GITHUB_TOKEN_ENCRYPTION_KEY?.length ?? 0) < 32) {
     return NextResponse.json(
-      { error: "GitHub sign-in is not configured. Set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, DEPLO_SESSION_SECRET, and DEPLO_BASE_URL." },
+      { error: "GitHub sign-in is not configured. Set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, DEPLO_SESSION_SECRET, GITHUB_TOKEN_ENCRYPTION_KEY, and DEPLO_BASE_URL." },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -30,7 +30,7 @@ export async function GET() {
   const authorizationUrl = new URL("https://github.com/login/oauth/authorize");
   authorizationUrl.searchParams.set("client_id", clientId);
   authorizationUrl.searchParams.set("redirect_uri", callbackUrl);
-  authorizationUrl.searchParams.set("scope", "read:user");
+  authorizationUrl.searchParams.set("scope", "read:user repo");
   authorizationUrl.searchParams.set("state", state);
 
   const response = NextResponse.redirect(authorizationUrl);
