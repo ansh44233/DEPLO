@@ -11,6 +11,10 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ uploadId: string }> };
 
+function jsonError(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 export async function POST(request: NextRequest, context: RouteContext) {
   const token = process.env.DEPLO_UPLOAD_TOKEN;
   if (!token || token.length < 32) return jsonError("Upload storage is not configured.", 503);
