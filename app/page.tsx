@@ -615,6 +615,37 @@ export default function Home() {
             </section>
           </div>
 
+          <section className="panel webhook-panel">
+            <div className="panel-heading">
+              <div><h2>GitHub push activity</h2><p>{webhookLoading ? "Loading verified webhook deliveries…" : webhookError ? webhookError : selected.sourceType !== "github" ? "Connect a GitHub repository to inspect automatic redeployments." : webhookDeliveries.length ? "Verified pushes and automatic deployment retry activity for this repository." : "No GitHub push deliveries have been recorded for this repository yet."}</p></div>
+              <button className="text-button" onClick={() => void refreshWebhookDeliveries(selected.id, Boolean(signedInUser) && selected.sourceType === "github")} disabled={webhookLoading || !selected.id || !signedInUser || selected.sourceType !== "github"}><RefreshCw size={14} className={webhookLoading ? "spin" : ""} /> {webhookLoading ? "Refreshing…" : "Refresh"}</button>
+            </div>
+            {!signedInUser ? <div className="empty-state">Sign in with GitHub to view delivery activity for your own projects.</div>
+              : webhookError ? <div className="webhook-error" role="alert">{webhookError}</div>
+              : webhookLoading && webhookDeliveries.length === 0 ? <div className="empty-state">Loading GitHub delivery activity…</div>
+              : webhookDeliveries.length ? <div className="webhook-list">
+                {webhookDeliveries.map((delivery) => {
+                  const statusLabel = delivery.status === "received" ? (delivery.attempt_count > 0 ? "Retry queued" : "Queued") : delivery.status === "processing" ? "Deploying" : delivery.status === "deployed" ? "Deployed" : delivery.status === "ignored" ? "Ignored" : "Failed";
+                  const statusClass = delivery.status === "deployed" ? "healthy" : delivery.status === "failed" ? "failed" : delivery.status === "processing" ? "building" : "queued";
+                  return <div className="webhook-row" key={delivery.delivery_id}>
+                    <div className="webhook-row-main">
+                      <span className={"health-tag " + statusClass}><i />{statusLabel}</span>
+                      <strong>{delivery.repository_full_name}</strong>
+                      <span className="branch-chip"><Github size={11} /> {delivery.branch}</span>
+                      <code>{delivery.commit_sha.slice(0, 7)}</code>
+                    </div>
+                    <div className="webhook-row-meta">
+                      <span>{delivery.attempt_count} {delivery.attempt_count === 1 ? "attempt" : "attempts"}</span>
+                      <span>Received {new Date(delivery.received_at).toLocaleString()}</span>
+                      {delivery.status === "received" && delivery.attempt_count > 0 && <span>Next retry {new Date(delivery.available_at).toLocaleString()}</span>}
+                      {delivery.last_error_code && <span className="webhook-error-code">Error: {delivery.last_error_code}</span>}
+                    </div>
+                  </div>;
+                })}
+              </div>
+              : <div className="empty-state">{selected.sourceType === "github" ? "Push to the connected repository branch to create a delivery record." : "This project does not use GitHub webhooks."}</div>}
+            <div className="webhook-footnote"><ShieldCheck size={13} /> Delivery details are scoped to this signed-in project owner. Secrets and raw webhook payloads are never shown.</div>
+          </section>
           <section className="panel deployments-panel">
             <div className="panel-heading">
               <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
