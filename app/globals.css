@@ -45,3 +45,6 @@
 
 .provider-readiness{display:flex;align-items:center;gap:12px;margin:-8px 0 18px;padding:12px 14px;border:1px solid #49366a;border-radius:8px;background:linear-gradient(110deg,#21182e,#17131e)}.provider-readiness.is-ready{border-color:#28513b;background:linear-gradient(110deg,#14251c,#17131e)}.provider-readiness-icon{display:grid;place-items:center;width:31px;height:31px;flex:0 0 31px;border-radius:8px;background:#332346;color:#c7a4ff}.is-ready .provider-readiness-icon{background:#1b3a2a;color:#83d6a4}.provider-readiness-copy{display:grid;gap:4px;min-width:0;flex:1}.provider-readiness-copy strong{font-size:10px;font-weight:600}.provider-readiness-copy span{color:#a49aaa;font-size:9px;line-height:1.45;overflow-wrap:anywhere}.provider-readiness-state{color:#c7a4ff;font-size:8px;font-weight:700;letter-spacing:.8px;white-space:nowrap}.is-ready .provider-readiness-state{color:#83d6a4}
 @media(max-width:600px){.provider-readiness{align-items:flex-start;gap:9px}.provider-readiness-state{font-size:7px}}
+
+@keyframes deplo-spin{to{transform:rotate(360deg)}}
+.spin{animation:deplo-spin 1s linear infinite}

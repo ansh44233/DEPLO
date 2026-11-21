@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import {
   Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
   ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
   FileArchive, FileCode2, FolderGit2, Gauge, Github, Globe2, HardDrive,
   LayoutDashboard, LifeBuoy, MoreHorizontal, Plus, Search, Settings2,
-  ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
+  RefreshCw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
 } from "lucide-react";
 
 type RepositoryInfo = {
@@ -85,21 +85,24 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/deploy/history", { cache: "no-store" })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Deployment history is unavailable.");
-        return data as { deployments: CloudflareDeployment[] };
-      })
-      .then((data) => { if (!cancelled) setCloudflareDeployments(data.deployments); })
-      .catch((error) => {
-        if (!cancelled) setHistoryError(error instanceof Error ? error.message : "Deployment history is unavailable.");
-      })
-      .finally(() => { if (!cancelled) setHistoryLoading(false); });
-    return () => { cancelled = true; };
+  const refreshDeploymentHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const response = await fetch("/api/deploy/history", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Deployment history is unavailable.");
+      setCloudflareDeployments((data as { deployments: CloudflareDeployment[] }).deployments);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Deployment history is unavailable.");
+    } finally {
+      setHistoryLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshDeploymentHistory();
+  }, [refreshDeploymentHistory]);
 
   const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
   const displayDeployments = cloudflareDeployments.map((deployment) => ({
@@ -312,7 +315,7 @@ export default function Home() {
           <section className="panel deployments-panel">
             <div className="panel-heading">
               <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
-              <button className="text-button" onClick={() => setActiveNav("Deployments")}>View deployment history <ArrowUpRight size={14} /></button>
+              <button className="text-button" onClick={() => void refreshDeploymentHistory()} disabled={historyLoading}><RefreshCw size={14} className={historyLoading ? "spin" : ""} /> {historyLoading ? "Refreshing…" : "Refresh"}</button>
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
