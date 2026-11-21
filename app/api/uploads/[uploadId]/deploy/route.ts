@@ -1,0 +1,126 @@
+import { copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { NextRequest, NextResponse } from "next/server";
+import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
+import { extractZipSafely } from "@/lib/uploads/extract-zip";
+import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type RouteContext = { params: Promise<{ uploadId: string }> };
+const MAX_PAGES_FILES = 2_000;
+const MAX_PAGES_FILE_BYTES = 25 * 1024 * 1024;
+
+function jsonError(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
+async function inspectStaticDirectory(root: string): Promise<{ fileCount: number; totalBytes: number }> {
+  let fileCount = 0;
+  let totalBytes = 0;
+
+  async function visit(directory: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error("Static deployments cannot contain symbolic links.");
+      if (entry.isDirectory()) {
+        await visit(fullPath);
+        continue;
+      }
+      if (!entry.isFile()) throw new Error("Static deployments can contain regular files and directories only.");
+
+      const details = await stat(fullPath);
+      if (details.size > MAX_PAGES_FILE_BYTES) {
+        throw new Error("Cloudflare Pages files must be 25 MiB or smaller.");
+      }
+      fileCount += 1;
+      totalBytes += details.size;
+      if (fileCount > MAX_PAGES_FILES) {
+        throw new Error("This deployment contains too many files.");
+      }
+    }
+  }
+
+  await visit(root);
+  if (fileCount === 0) throw new Error("The deployment directory is empty.");
+  return { fileCount, totalBytes };
+}
+
+export async function POST(request: NextRequest, context: RouteContext) {
+  const token = process.env.DEPLO_UPLOAD_TOKEN;
+  if (!token || token.length < 32) return jsonError("Upload storage is not configured.", 503);
+  if (!isAuthorizedUploadRequest(request.headers.get("authorization"), token)) {
+    return jsonError("Authentication required.", 401);
+  }
+
+  const config = readCloudflarePagesConfig();
+  if (!config) {
+    return jsonError("Configure CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and CLOUDFLARE_PAGES_PROJECT_NAME on the server.", 503);
+  }
+
+  const { uploadId } = await context.params;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadId)) {
+    return jsonError("Invalid upload ID.", 400);
+  }
+
+  let body: { projectSlug?: unknown };
+  try {
+    body = await request.json() as { projectSlug?: unknown };
+  } catch {
+    return jsonError("Send a JSON body containing projectSlug.", 400);
+  }
+  if (typeof body.projectSlug !== "string" || !/^[a-z0-9][a-z0-9-]{0,57}$/.test(body.projectSlug)) {
+    return jsonError("Project slug must use lowercase letters, numbers, and hyphens (maximum 58 characters).", 400);
+  }
+
+  const storageRoot = resolve(process.env.DEPLO_UPLOAD_DIR || join(process.cwd(), ".deplo-uploads"));
+  const metadataPath = join(storageRoot, `${uploadId}.json`);
+  let metadata: { uploadId?: string; kind?: string };
+  try {
+    metadata = JSON.parse(await readFile(metadataPath, "utf8")) as { uploadId?: string; kind?: string };
+  } catch {
+    return jsonError("Upload not found.", 404);
+  }
+  if (metadata.uploadId !== uploadId || (metadata.kind !== "zip" && metadata.kind !== "html")) {
+    return jsonError("The requested upload is invalid.", 400);
+  }
+
+  const outputDirectory = join(storageRoot, `${uploadId}.extracted`);
+  try {
+    if (metadata.kind === "zip") {
+      try {
+        await stat(outputDirectory);
+      } catch {
+        await extractZipSafely(join(storageRoot, uploadId), outputDirectory);
+      }
+    } else {
+      await mkdir(outputDirectory, { recursive: false, mode: 0o700 });
+      await copyFile(join(storageRoot, uploadId), join(outputDirectory, "index.html"));
+    }
+
+    try {
+      await stat(join(outputDirectory, "index.html"));
+    } catch {
+      return jsonError("The site must contain an index.html file at its root.", 422);
+    }
+
+    const assets = await inspectStaticDirectory(outputDirectory);
+    const branch = `site-${body.projectSlug}`;
+    if (!isValidPagesBranch(branch)) return jsonError("Invalid deployment branch.", 400);
+
+    const deployment = await deployStaticDirectory(outputDirectory, branch, config);
+    return NextResponse.json({
+      uploadId,
+      projectSlug: body.projectSlug,
+      status: "deployed",
+      url: deployment.url,
+      fileCount: assets.fileCount,
+      totalBytes: assets.totalBytes,
+    }, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Static deployment failed.";
+    return jsonError(message, 502);
+  }
+}
