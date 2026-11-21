@@ -39,3 +39,6 @@
 .repo-meta span{padding:4px 6px;border:1px solid #393143;border-radius:5px;color:#aaa2b3;font-size:8px}
 .repo-confirm{width:100%;margin-top:2px}
 @media(max-width:600px){.repo-input-row{flex-direction:column}.repo-input-row .primary-button{width:100%}}
+
+/* Honest preview-state indicators */
+.preview-pill{border-color:#49366a;background:#21182e;color:#d4c0f4}.preview-dot{background:#a78bfa;box-shadow:0 0 9px #a78bfa80}.preview-note{font-size:10px;color:#c6b0e6;margin:11px 0 6px;padding:8px 9px;border:1px solid #3b2d4d;border-radius:6px;background:#21182e}
