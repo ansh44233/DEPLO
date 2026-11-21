@@ -8,7 +8,7 @@ import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } 
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
 import { isValidGitHubBranch } from "@/lib/github/deploy-validation";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
-import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("The saved GitHub repository details are invalid. Re-import this repository.", 422);
   }
 
-  const config = readCloudflarePagesConfig();
+  const config = readCloudflarePagesCredentials();
   if (!config) return jsonError("Cloudflare Pages deployment is not configured on the server.", 503);
 
   let pagesTarget;
