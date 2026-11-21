@@ -38,6 +38,7 @@ type CloudflareDeployment = {
 };
 
 type SignedInUser = { id: number; login: string; name: string | null; avatarUrl: string | null };
+type GitHubAppStatus = { configured: boolean; connected: boolean; accountLogin: string | null; accountType: "User" | "Organization" | null };
 type AccountProject = {
   id: string; name: string; slug: string; source_type: "github" | "zip" | "html";
   repository_url: string | null; branch: string | null; deployment_url: string | null;
@@ -89,6 +90,8 @@ export default function Home() {
   const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookError, setWebhookError] = useState("");
   const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
+  const [githubAppStatus, setGithubAppStatus] = useState<GitHubAppStatus | null>(null);
+  const [githubAppStatusLoading, setGithubAppStatusLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
@@ -188,7 +191,7 @@ export default function Home() {
     if (authResult === "success") setNotice("Signed in with GitHub. Your saved projects are loading.");
     if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
     const appResult = new URLSearchParams(window.location.search).get("github_app");
-    if (appResult === "connected") setNotice("GitHub App installed and linked to your DEPLO account. Private auto-deploy worker integration is the next step.");
+    if (appResult === "connected") setNotice("GitHub App connected. Private repository push deployments are enabled for repositories selected in the installation.");
     if (appResult === "error") setNotice("GitHub App installation could not be linked. Check the app setup URL, private key, and database migration.");
     if (appResult === "cancelled") setNotice("GitHub App installation was cancelled.");
     if (appResult === "signin_required") setNotice("Sign in with GitHub before installing the DEPLO GitHub App.");
@@ -196,11 +199,32 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (!signedInUser) {
+      setGithubAppStatus(null);
+      setGithubAppStatusLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setGithubAppStatusLoading(true);
+    fetch("/api/auth/github/app-status", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as GitHubAppStatus & { error?: string };
+        if (!response.ok) throw new Error(data.error || "Could not load GitHub App status.");
+        return data;
+      })
+      .then((data) => { if (!cancelled) setGithubAppStatus(data); })
+      .catch(() => { if (!cancelled) setGithubAppStatus(null); })
+      .finally(() => { if (!cancelled) setGithubAppStatusLoading(false); });
+    return () => { cancelled = true; };
+  }, [signedInUser]);
+
   async function signOut() {
     try {
       const response = await fetch("/api/auth/logout", { method: "POST" });
       if (!response.ok) throw new Error("Sign-out failed.");
       setSignedInUser(null);
+      setGithubAppStatus(null);
       setProjects(initialProjects);
       setCloudflareDeployments([]);
       setActiveProject("frontend");
@@ -565,7 +589,7 @@ export default function Home() {
             <div className="status-pill preview-pill"><span className="status-dot preview-dot" /> Preview environment</div>
             <button className="icon-button" aria-label="Search" onClick={() => document.getElementById("project-search")?.focus()}><Search size={17} /></button>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={17} /><i /></button>
-            {authLoading ? <span className="top-avatar">…</span> : signedInUser ? <button className="text-button" onClick={() => void signOut()} title={signedInUser.login}>Sign out</button> : <a className="text-button" href="/api/auth/github"><Github size={14} /> Sign in with GitHub</a>}
+            {authLoading ? <span className="top-avatar">…</span> : signedInUser ? <><a className="text-button" href="/api/auth/github/install" title="Manage GitHub App installation">{githubAppStatusLoading ? "Checking GitHub App…" : githubAppStatus?.connected ? "GitHub App · " + (githubAppStatus.accountLogin ?? "Connected") : "Install GitHub App"}</a><button className="text-button" onClick={() => void signOut()} title={signedInUser.login}>Sign out</button></> : <a className="text-button" href="/api/auth/github"><Github size={14} /> Sign in with GitHub</a>}
           </div>
         </header>
 
