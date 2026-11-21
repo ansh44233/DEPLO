@@ -223,3 +223,10 @@ DEPLO can store project metadata in Supabase Postgres and scope project list/cre
 To configure it, create a Supabase project, run [`supabase/migrations/0001_account_projects.sql`](supabase/migrations/0001_account_projects.sql) in the SQL editor, and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server. Never expose the service-role key through a `NEXT_PUBLIC_` variable.
 
 This is the persistence/API foundation. When signed in, the dashboard loads account-owned projects and saves imported repository metadata through these endpoints. Deployment routes are still not scoped to project ownership; keep them behind the existing server-side token and do not expose that token to browsers.
+
+
+## Project and hosted-site deletion
+
+Deleting an account-owned project verifies the signed GitHub session and project ownership, derives the isolated Cloudflare Pages project name from that owner and project slug, and removes the hosted Pages project before deleting the DEPLO database record. This also removes the site's deployments and provider history. The dashboard displays a destructive confirmation before submitting the request.
+
+If Cloudflare deletion fails, DEPLO keeps the database project record so the owner can retry. If Cloudflare has already removed the site but the database deletion fails, retrying is safe because a missing Pages project is treated as already removed. Projects that were never deployed do not require a Cloudflare cleanup request.
