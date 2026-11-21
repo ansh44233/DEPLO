@@ -41,6 +41,8 @@ type AccountProject = {
 };
 
 type Project = {
+  id?: string;
+  sourceType?: AccountProject["source_type"];
   name: string;
   domain: string;
   source: string;
@@ -83,6 +85,7 @@ export default function Home() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
+  const [projectDeploying, setProjectDeploying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,24 +100,27 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  const refreshDeploymentHistory = useCallback(async () => {
+  const refreshDeploymentHistory = useCallback(async (projectId?: string, authenticated = false) => {
+    if (!authenticated || !projectId) {
+      setCloudflareDeployments([]);
+      setHistoryError("");
+      setHistoryLoading(false);
+      return;
+    }
     setHistoryLoading(true);
     setHistoryError("");
     try {
-      const response = await fetch("/api/deploy/history", { cache: "no-store" });
+      const response = await fetch("/api/deploy/history?projectId=" + encodeURIComponent(projectId), { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Deployment history is unavailable.");
       setCloudflareDeployments((data as { deployments: CloudflareDeployment[] }).deployments);
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Deployment history is unavailable.");
+      setCloudflareDeployments([]);
     } finally {
       setHistoryLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void refreshDeploymentHistory();
-  }, [refreshDeploymentHistory]);
 
   useEffect(() => {
     if (!signedInUser) return;
@@ -131,6 +137,8 @@ export default function Home() {
       .then((data) => {
         if (cancelled) return;
         const owned = data.projects.map((project): Project => ({
+          id: project.id,
+          sourceType: project.source_type,
           name: project.name,
           domain: project.deployment_url || "Not deployed yet",
           source: project.source_type === "github"
@@ -174,6 +182,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Sign-out failed.");
       setSignedInUser(null);
       setProjects(initialProjects);
+      setCloudflareDeployments([]);
       setActiveProject("frontend");
       setProjectsError("");
       setNotice("You have signed out of DEPLO.");
@@ -188,6 +197,30 @@ export default function Home() {
     name: "No project selected", domain: "—", source: "—", branch: "—",
     status: "Connected" as const, updated: "—", accent: "violet",
   };
+  useEffect(() => {
+    void refreshDeploymentHistory(selected.id, Boolean(signedInUser));
+  }, [refreshDeploymentHistory, selected.id, signedInUser]);
+
+  async function deploySelectedProject() {
+    if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
+    setProjectDeploying(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/deploy", { method: "POST" });
+      const data = await response.json() as { url?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "Project deployment failed.");
+      setProjects((current) => current.map((project) => project.id === selected.id
+        ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "Just now" }
+        : project));
+      setNotice(data.url ? "Deployment published: " + data.url : "Deployment completed.");
+      await refreshDeploymentHistory(selected.id, true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Project deployment failed.");
+    } finally {
+      setProjectDeploying(false);
+    }
+  }
+
   const displayDeployments = cloudflareDeployments.map((deployment) => ({
     id: deployment.id,
     project: deployment.environment,
@@ -233,9 +266,10 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: projectName, slug, sourceType: "github", repositoryUrl: repoInfo.url, branch: repoBranch }),
         });
-        const data = await response.json();
+        const data = await response.json() as { project: AccountProject; error?: string };
         if (!response.ok) throw new Error(data.error || "Could not save this project.");
-        setProjects((current) => [newProject, ...current.filter((project) => project.name !== projectName)]);
+        const savedProject = { ...newProject, id: data.project.id, sourceType: data.project.source_type };
+        setProjects((current) => [savedProject, ...current.filter((project) => project.name !== projectName)]);
         setActiveProject(projectName);
         setActiveNav("Projects");
         setNotice("Project saved to your GitHub account. It has not been deployed yet.");
@@ -416,6 +450,7 @@ export default function Home() {
                 <Detail label="Latest deployment" value={selected.updated} icon={<Clock3 size={15} />} />
                 <Detail label="Source" value={selected.source} icon={<FolderGit2 size={15} />} />
               </div>
+              {selected.id && selected.sourceType === "github" && <button className="primary-button deploy-project-button" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>{projectDeploying ? "Deploying…" : "Deploy to Cloudflare Pages"} <ArrowUpRight size={14} /></button>}
               <button className="outline-button" onClick={() => setNotice(`Project settings for ${selected.name} will be available in a later milestone.`)}>Project settings <ArrowUpRight size={14} /></button>
             </section>
           </div>
