@@ -161,3 +161,23 @@ export async function updateOwnedProjectDeployment(
   }
   return rows[0];
 }
+
+
+export async function deleteOwnedProject(
+  ownerGithubId: number,
+  projectId: string,
+  env: Record<string, string | undefined> = process.env,
+  fetcher: Fetcher = fetch,
+): Promise<boolean> {
+  const config = readConfig(env);
+  if (!config) throw new ProjectStoreError("Account project storage is not configured.", 503);
+  const url = endpoint(config, {
+    id: "eq." + projectId,
+    owner_github_id: "eq." + ownerGithubId,
+  });
+  const rows = await request<OwnedProject[]>(url, config, {
+    method: "DELETE",
+    headers: { Prefer: "return=representation" },
+  }, fetcher);
+  return Array.isArray(rows) && rows.length > 0;
+}
