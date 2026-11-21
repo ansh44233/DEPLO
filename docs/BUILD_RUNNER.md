@@ -2,62 +2,43 @@
 
 DEPLO's web application must never execute repository scripts, package lifecycle hooks, or dependency installers in its own process or host filesystem.
 
-## Contract foundation
+## Authenticated source handoff
 
-`lib/deploy/build-runner-contract.ts` defines the provider-neutral request shape, accepted framework/output combinations, and conservative resource defaults. It does not start a process, download source, install dependencies, execute a build, or publish artifacts.
+Before submitting a build, DEPLO obtains the exact requested commit archive from GitHub using a short-lived GitHub App installation token with read-only Contents and Metadata permissions. The token is held only in the DEPLO worker process and is never sent to the build runner.
 
-Default request limits are 10 minutes, 2 GiB memory, 2 CPU cores, 4 GiB ephemeral disk, 5,000 output files, 100 MiB total output, and network denied by default. A runner must enforce these limits outside DEPLO; request metadata is not enforcement.
+The source handoff is:
 
-## Authenticated asynchronous protocol
+1. DEPLO fetches `GET https://api.github.com/repos/{owner}/{repo}/zipball/{commitSha}`; the final archive host must be `api.github.com` or `codeload.github.com`.
+2. DEPLO enforces a 25 MiB compressed archive cap and validates the ZIP signature.
+3. DEPLO uploads multipart form data to `POST /v1/sources` with the authenticated runner bearer token, an `Idempotency-Key` equal to the durable DEPLO build-job UUID, a `metadata` JSON field (`repositoryFullName`, `sourceCommitSha`), and an `archive` ZIP file.
+4. The runner returns HTTP 201 (or an idempotent HTTP 200) with an opaque `sourceId`. The runner must bind that ID to the exact commit, repository, archive digest, and idempotency key; conflicting retries must be rejected.
+5. DEPLO submits `POST /v1/builds` with the opaque `sourceId`, exact commit SHA, framework, package manager, output directory, and resource limits. The same job UUID is the build idempotency key.
 
-1. DEPLO submits `POST /v1/builds` with a stable `Idempotency-Key` equal to the durable DEPLO build-job UUID.
-2. The runner deduplicates repeated submissions by that key and responds with HTTP 202 plus an opaque `runnerJobId`.
-3. DEPLO persists the runner ID and polls `GET /v1/builds/{runnerJobId}` from a scheduled background worker.
-4. The runner reports `queued`, `running`, `succeeded`, or `failed`; terminal results and artifact metadata are strictly validated.
+The runner must independently validate and safely extract the archive, verify its recorded source identity, reject path traversal, duplicate paths, symlinks and special files, and store it in a private immutable source area. It must not trust a repository name or commit string as a path. The source archive must not be executed during intake.
 
-The transport uses a server-only bearer token, refuses redirects, omits cookies, bounds request timeouts and response sizes, and never forwards Cloudflare, Supabase, GitHub App, or session credentials.
+## Asynchronous build protocol
 
-## Artifact export protocol
+The runner responds to `POST /v1/builds` with HTTP 202 and an opaque `runnerJobId`, deduplicating repeated submissions by the idempotency key. DEPLO persists the runner ID and polls `GET /v1/builds/{runnerJobId}`. Status is `queued`, `running`, `succeeded`, or `failed`.
 
-A successful runner result exposes an opaque `artifactId`. DEPLO retrieves it only from the configured runner origin using:
+A successful result exposes an opaque `artifactId`. DEPLO downloads it only from the configured runner origin using `GET /v1/artifacts/{artifactId}`, bearer authentication, and `Accept: application/zip`. The ZIP must contain a root `index.html`. DEPLO enforces a 100 MiB cap, safely extracts it, checks file counts and bytes against runner metadata, and publishes validated static output to the project's isolated Cloudflare Pages site.
 
-- `GET /v1/artifacts/{artifactId}`
-- `Authorization: Bearer <DEPLO_BUILD_RUNNER_TOKEN>`
-- `Accept: application/zip`
-- `Content-Type: application/zip` in the response
+## Isolation requirements
 
-The artifact is a ZIP containing the contents of the selected build output directory directly at its root, including a root `index.html`. The runner must keep the artifact immutable and available for retries until DEPLO acknowledges successful publication or the retention window expires.
-
-DEPLO streams the response to a private temporary file with a 100 MiB archive cap, refuses redirects, checks the ZIP signature, and extracts it through the existing path traversal, duplicate-path, symlink, entry-count, expanded-size, and compression-ratio protections. It then independently checks for a root HTML entry point, rejects private/blocked static paths, enforces Cloudflare Pages file limits, and compares extracted file count and bytes with the runner's reported metadata. A mismatch is rejected. Temporary artifacts must be removed after processing.
-
-The artifact ID is never treated as a URL or filesystem path. The downloader constructs its request from the configured runner origin only.
-
-## Queue worker integration
-
-`POST /api/internal/build-jobs/process` is protected by `DEPLO_BUILD_WORKER_SECRET`. A scheduler should call it repeatedly. Each invocation claims at most one poll or one pending build using atomic Supabase RPCs. Runner IDs are persisted in migration `0008_async_build_runner_jobs.sql`; poll claims prevent concurrent workers from updating the same job. Transient failures use the existing retry/backoff policy.
-
-A runner result of `succeeded` is recorded as **artifact-ready**, not as a successful DEPLO deployment. The artifact download/validation helper is implemented separately; queue publication is not enabled until a durable artifact handoff and Cloudflare publishing worker are connected. No artifact is currently downloaded or published by the queue worker.
-
-## Required runner isolation
-
-Before enabling a real runner, its implementation must provide:
-
-1. A disposable VM or strongly isolated container per job; no privileged mode, host sockets, host filesystem mounts, or shared writable workspaces.
-2. CPU, memory, process-count, disk, file-count, and wall-clock enforcement.
-3. No Cloudflare, Supabase service-role, GitHub App private key, session, or deployment credentials inside the build environment.
-4. Explicit dependency-network policy. Build scripts and package lifecycle hooks are untrusted; outbound network should be denied unless a narrowly scoped proxy is required.
-5. Exact immutable source commit verification and independent framework/output detection.
-6. Artifact export through a separate authenticated channel, with path validation, symlink rejection, file-count/size limits, and immutable artifact IDs.
-7. Cancellation, timeout cleanup, per-account concurrency/quotas, audit events, and bounded logs with secret redaction.
+- Disposable VM or strongly isolated container per job; no privileged mode, host sockets, host filesystem mounts, or shared writable workspaces.
+- Enforce CPU, memory, process-count, disk, file-count, and wall-clock limits outside DEPLO.
+- Never expose Cloudflare, Supabase service-role, GitHub App private key, session, or deployment credentials to project build code.
+- Dependency networking denied by default; any required package access must use a constrained proxy with domain and bandwidth policy.
+- Verify immutable source commit and independently detect framework/output configuration.
+- Export immutable artifacts through a separate authenticated channel.
+- Support cancellation, timeout cleanup, per-account concurrency/quotas, audit events, bounded logs, and secret redaction.
 
 ## Configuration
 
-- `DEPLO_BUILD_RUNNER_URL`: HTTPS base URL for the isolated runner (localhost is permitted for local development only).
-- `DEPLO_BUILD_RUNNER_TOKEN`: random token of at least 32 characters.
-- `DEPLO_BUILD_WORKER_SECRET`: random scheduler/worker bearer secret of at least 32 characters.
+- `DEPLO_BUILD_RUNNER_URL`: HTTPS runner base URL (localhost only for local development).
+- `DEPLO_BUILD_RUNNER_TOKEN`: random server-only token of at least 32 characters.
+- `DEPLO_BUILD_WORKER_SECRET`: random server-only scheduler/worker token of at least 32 characters.
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`: GitHub App credentials used only by DEPLO to issue short-lived read-only installation tokens.
 
-All three are server-only. The queue worker returns 503 until the runner is configured. Migration `0008_async_build_runner_jobs.sql` must be applied to Supabase before the worker is enabled.
+## Current behavior and deployment prerequisites
 
-## Current behavior
-
-Framework detection and queue processing remain metadata/protocol foundations until a real isolated runner is deployed. No arbitrary user code is executed by the DEPLO web host. Static HTML/ZIP/GitHub deployment paths continue to publish already-static files only. The artifact downloader and validator are tested building blocks, not a live runner or deployment pipeline.
+The DEPLO worker now stages an exact GitHub commit archive and sends it to the runner before build submission. The runner service itself is not implemented or deployed by this repository yet. No arbitrary project code is executed by the DEPLO web host. Actual framework builds remain unavailable until a runner implements the source, build, status, and artifact endpoints with the isolation guarantees above and is deployed/configured. Supabase migrations `0006` through `0008` must also be applied before the queue is enabled.
