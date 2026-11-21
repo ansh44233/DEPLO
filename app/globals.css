@@ -48,3 +48,6 @@
 
 @keyframes deplo-spin{to{transform:rotate(360deg)}}
 .spin{animation:deplo-spin 1s linear infinite}
+
+
+.table-actions{display:flex;align-items:center;gap:5px}.logs-modal{width:min(100%,760px);max-height:min(82vh,760px);display:flex;flex-direction:column}.logs-output{min-height:160px;max-height:52vh;overflow:auto;padding:12px;border:1px solid #302a38;border-radius:8px;background:#0b0a0f;font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}.log-line{display:grid;grid-template-columns:76px minmax(0,1fr);gap:12px;padding:2px 0;color:#c8c1d1}.log-line time{color:#716b7a;white-space:nowrap}.log-line code{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;color:#d7d0e0}.logs-modal .modal-head p{overflow-wrap:anywhere}

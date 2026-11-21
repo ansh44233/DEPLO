@@ -7,7 +7,7 @@ import {
   ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
   FileArchive, FileCode2, FolderGit2, Gauge, Github, Globe2, HardDrive,
   LayoutDashboard, LifeBuoy, MoreHorizontal, Plus, Search, Settings2,
-  RefreshCw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
+  RefreshCw, RotateCcw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
 } from "lucide-react";
 
 type RepositoryInfo = {
@@ -22,6 +22,8 @@ type DeploymentReadiness = {
   ready: boolean;
   missing: string[];
 };
+
+type CloudflareDeploymentLog = { timestamp: string | null; line: string };
 
 type CloudflareDeployment = {
   id: string;
@@ -42,6 +44,7 @@ type AccountProject = {
 
 type Project = {
   id?: string;
+  slug?: string;
   sourceType?: AccountProject["source_type"];
   name: string;
   domain: string;
@@ -86,6 +89,11 @@ export default function Home() {
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
+  const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
+  const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
+  const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +146,7 @@ export default function Home() {
         if (cancelled) return;
         const owned = data.projects.map((project): Project => ({
           id: project.id,
+          slug: project.slug,
           sourceType: project.source_type,
           name: project.name,
           domain: project.deployment_url || "Not deployed yet",
@@ -221,6 +230,57 @@ export default function Home() {
     }
   }
 
+
+
+  async function openDeploymentLogs(deploymentId: string) {
+    if (!selected.id || !signedInUser) return;
+    setLogsDeploymentId(deploymentId);
+    setDeploymentLogs([]);
+    setLogsError("");
+    setLogsLoading(true);
+    try {
+      const response = await fetch(
+        "/api/projects/" + encodeURIComponent(selected.id) + "/deployments/" + encodeURIComponent(deploymentId) + "/logs",
+        { cache: "no-store" },
+      );
+      const data = await response.json() as { logs?: CloudflareDeploymentLog[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Deployment logs could not be loaded.");
+      setDeploymentLogs(Array.isArray(data.logs) ? data.logs : []);
+    } catch (error) {
+      setLogsError(error instanceof Error ? error.message : "Deployment logs could not be loaded.");
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  async function rollbackSelectedDeployment(deploymentId: string) {
+    if (!selected.id || !signedInUser || rollbackDeploymentId) return;
+    const confirmed = window.confirm("Roll back " + selected.name + " to this previous successful production deployment? This changes the live production version.");
+    if (!confirmed) return;
+
+    setRollbackDeploymentId(deploymentId);
+    setNotice("");
+    try {
+      const response = await fetch(
+        "/api/projects/" + encodeURIComponent(selected.id) + "/deployments/" + encodeURIComponent(deploymentId) + "/rollback",
+        { method: "POST" },
+      );
+      const data = await response.json() as { url?: string; error?: string; warning?: string };
+      if (!response.ok) throw new Error(data.error || "Deployment rollback failed.");
+      if (data.url) {
+        setProjects((current) => current.map((project) => project.id === selected.id
+          ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "Just now" }
+          : project));
+      }
+      setNotice(data.warning || "Production rolled back successfully" + (data.url ? ": " + data.url : "."));
+      await refreshDeploymentHistory(selected.id, true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Deployment rollback failed.");
+    } finally {
+      setRollbackDeploymentId(null);
+    }
+  }
+
   const displayDeployments = cloudflareDeployments.map((deployment) => ({
     id: deployment.id,
     project: deployment.environment,
@@ -230,6 +290,7 @@ export default function Home() {
     status: deployment.status === "success" ? "Ready" : deployment.status === "failure" ? "Failed" : deployment.status === "building" ? "Building" : "Unknown",
     duration: "Cloudflare",
     url: deployment.url,
+    canRollback: deployment.environment === "production" && deployment.status === "success" && deployment.branch === (selected.slug ? "site-" + selected.slug : ""),
   }));
   const filteredProjects = useMemo(
     () => projects.filter((project) => project.name.toLowerCase().includes(search.toLowerCase())),
@@ -254,6 +315,7 @@ export default function Home() {
     const projectName = repoInfo.fullName.split("/")[1].toLowerCase();
     const slug = projectName.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58);
     const newProject: Project = {
+      slug,
       name: projectName, domain: "Not deployed yet",
       source: "github.com/" + repoInfo.fullName, branch: repoBranch,
       status: "Connected", updated: "Just now", accent: "violet",
@@ -268,7 +330,7 @@ export default function Home() {
         });
         const data = await response.json() as { project: AccountProject; error?: string };
         if (!response.ok) throw new Error(data.error || "Could not save this project.");
-        const savedProject = { ...newProject, id: data.project.id, sourceType: data.project.source_type };
+        const savedProject = { ...newProject, id: data.project.id, slug: data.project.slug, sourceType: data.project.source_type };
         setProjects((current) => [savedProject, ...current.filter((project) => project.name !== projectName)]);
         setActiveProject(projectName);
         setActiveNav("Projects");
@@ -346,6 +408,7 @@ export default function Home() {
       const savedAccountProject = accountProject;
       const previewProject: Project = {
         id: savedAccountProject.id,
+        slug: savedAccountProject.slug,
         sourceType: savedAccountProject.source_type,
         name: savedAccountProject.name,
         domain: savedAccountProject.deployment_url || "Not deployed yet",
@@ -524,11 +587,11 @@ export default function Home() {
           <section className="panel deployments-panel">
             <div className="panel-heading">
               <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
-              <button className="text-button" onClick={() => void refreshDeploymentHistory()} disabled={historyLoading}><RefreshCw size={14} className={historyLoading ? "spin" : ""} /> {historyLoading ? "Refreshing…" : "Refresh"}</button>
+              <button className="text-button" onClick={() => void refreshDeploymentHistory(selected.id, Boolean(signedInUser))} disabled={historyLoading}><RefreshCw size={14} className={historyLoading ? "spin" : ""} /> {historyLoading ? "Refreshing…" : "Refresh"}</button>
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
-                <thead><tr><th>PROJECT</th><th>DEPLOYMENT</th><th>BRANCH</th><th>STATUS</th><th>TIME</th><th /></tr></thead>
+                <thead><tr><th>PROJECT</th><th>DEPLOYMENT</th><th>BRANCH</th><th>STATUS</th><th>TIME</th><th>ACTIONS</th></tr></thead>
                 <tbody>
                   {displayDeployments.map((deployment) => (
                     <tr key={deployment.id}>
@@ -537,7 +600,17 @@ export default function Home() {
                       <td><span className="branch-chip"><Github size={12} /> {deployment.branch}</span></td>
                       <td><span className={`health-tag ${deployment.status === "Ready" ? "healthy" : deployment.status.toLowerCase()}`}><i />{deployment.status}</span></td>
                       <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
-                      <td><a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a></td>
+                      <td>
+                        <div className="table-actions">
+                          <button className="icon-button table-more" onClick={() => void openDeploymentLogs(deployment.id)} title="View deployment logs" aria-label={`View logs for ${deployment.id}`}>
+                            <TerminalSquare size={15} />
+                          </button>
+                          {deployment.canRollback && <button className="icon-button table-more" onClick={() => void rollbackSelectedDeployment(deployment.id)} disabled={rollbackDeploymentId !== null} title="Roll back production to this deployment" aria-label={`Roll back to ${deployment.id}`}>
+                            <RotateCcw size={15} className={rollbackDeploymentId === deployment.id ? "spin" : ""} />
+                          </button>}
+                          <a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {!historyLoading && !historyError && displayDeployments.length === 0 && <tr><td colSpan={6}><div className="empty-state">No Cloudflare deployments are available yet.</div></td></tr>}
@@ -560,7 +633,7 @@ export default function Home() {
           </div> : modal === "repo" ? <div className="repo-connect">
             <label className="repo-label" htmlFor="repo-url">GitHub repository URL (public or private)</label>
             <div className="repo-input-row"><input id="repo-url" value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repository" /><button className="primary-button" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Checking…" : "Find repository"}</button></div>
-            <p className="repo-help">Public repositories are supported in this first integration step. Private repository OAuth is not connected yet.</p>
+            <p className="repo-help">DEPLO can inspect public repositories and private repositories your signed-in GitHub account can access.</p>
             {repoError && <div className="repo-error" role="alert">{repoError}</div>}
             {repoInfo && <div className="repo-result">
               <div className="repo-result-top"><span className="source-icon github-source"><Github size={19} /></span><div><strong>{repoInfo.fullName}</strong><small>{repoInfo.description || "No repository description"}</small></div></div>
@@ -573,6 +646,21 @@ export default function Home() {
           </div> : <div className="upload-zone"><input type="file" disabled={projectSaving} accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => void startUpload(event.target.files?.[0], modal === "upload" ? "zip" : "html")} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP archive · maximum 25 MB" : "HTML document · maximum 2 MB"}</span>{uploadError && <p className="repo-error" role="alert">{uploadError}</p>}<button className="primary-button" disabled={projectSaving} onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}>{projectSaving ? "Uploading and deploying…" : <><ArrowDownToLine size={16} /> Browse files</>}</button></div>}
           <div className="modal-foot"><ShieldCheck size={14} /> {signedInUser ? "Uploads are saved to your account and published through your configured provider." : "Sign in with GitHub to save uploads and deploy them to your account."}</div>
         </div>
+      </div>}
+      {logsDeploymentId && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLogsDeploymentId(null); }}>
+        <section className="modal logs-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-logs-title">
+          <div className="modal-head">
+            <div><div className="eyebrow">DEPLOYMENT OUTPUT</div><h2 id="deployment-logs-title">Deployment logs</h2><p>{logsDeploymentId}</p></div>
+            <button className="icon-button" onClick={() => setLogsDeploymentId(null)} aria-label="Close deployment logs"><X size={18} /></button>
+          </div>
+          {logsLoading ? <div className="empty-state">Loading deployment logs…</div>
+            : logsError ? <div className="repo-error" role="alert">{logsError}</div>
+            : deploymentLogs.length ? <div className="logs-output">{deploymentLogs.map((log, index) => <div className="log-line" key={logsDeploymentId + "-" + index}>
+              <time>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : "—"}</time><code>{log.line}</code>
+            </div>)}</div>
+            : <div className="empty-state">No log lines are available for this deployment.</div>}
+          <div className="modal-foot"><ShieldCheck size={14} /> Logs are fetched from Cloudflare and are visible only to this project's owner.</div>
+        </section>
       </div>}
     </main>
   );

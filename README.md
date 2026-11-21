@@ -6,16 +6,16 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. Public GitHub repository inspection, GitHub account sign-in, and an authenticated local upload-storage endpoint are implemented. Database-backed project ownership and account-scoped project APIs are implemented; account-scoped static GitHub deployment and history endpoints are in progress. Supabase and Cloudflare credentials must still be configured before live use.
+Early development. GitHub sign-in, encrypted private-repository access, account-owned projects, static GitHub/ZIP/HTML publishing, provider deployment history, and owner-scoped deployment log retrieval are implemented. Cloudflare and Supabase credentials must still be configured and verified before live use.
 
 ## Current GitHub import preview
 
-The dashboard can inspect **public GitHub repositories** by URL, retrieve repository metadata and available branches, and add a selected branch to the in-browser dashboard preview.
+The dashboard can inspect public repositories and private repositories accessible to the signed-in GitHub account, retrieve repository metadata and branches, and save selected branches as account-owned projects.
 
 This is an early integration milestone, not a production deployment pipeline:
 - Private repository inspection and static deployment are supported after GitHub sign-in, provided the user approves the requested `repo` OAuth scope.
 - When signed in and Supabase is configured, the selected repository is saved as account-owned project metadata. Without sign-in or database configuration, it remains a temporary browser preview.
-- Selecting a repository does not run a build or publish a live URL.
+- Saving a repository does not immediately publish a live URL; use the project deployment action after saving.
 - Authenticated GitHub API requests are used when a signed-in token is available; otherwise public API limits apply.
 
 The inspection endpoint is `GET /api/github/repository?url=<public-repository-url>`.
@@ -61,9 +61,9 @@ curl -X POST "http://localhost:3000/api/uploads/<upload-id>/extract" \\
 
 The endpoint rejects unsafe paths, duplicate paths, symbolic links and special files, oversized archives, and excessive compression ratios. It streams entries to disk and enforces the actual expanded-byte limit. Extracted files are not publicly served and are not executed.
 
-## Deploy a public GitHub repository
+## Deploy a GitHub repository
 
-DEPLO can download a selected branch from a **public** GitHub repository and publish it as a static Cloudflare Pages site.
+DEPLO's account-owned deployment flow can download a selected branch from a public or authorized private GitHub repository and publish it as a static Cloudflare Pages site. The legacy shared-token endpoint shown below remains public-repository-only.
 
 ```bash
 curl -X POST "http://localhost:3000/api/github/deploy" \
@@ -102,6 +102,16 @@ Signed-in users can upload a ZIP archive or a standalone HTML document directly 
 
 This is a static publishing flow, not a build system. It does not run user-provided scripts or framework build commands. It requires the signed-in session, Supabase project storage, and Cloudflare Pages credentials to be configured on the server.
 
+
+## Deployment history, logs, and rollback
+
+- `GET /api/deploy/history?projectId={projectId}` returns the latest Cloudflare Pages deployments for the account-owned project's dedicated branch.
+- `GET /api/projects/{projectId}/deployments/{deploymentId}/logs` verifies project ownership and deployment-branch membership before retrieving provider logs. The response is no-store and capped to the latest 300 sanitized log lines.
+- The dashboard provides a deployment-log viewer for each listed deployment.
+- `POST /api/projects/{projectId}/deployments/{deploymentId}/rollback` is owner-scoped and only permits successful **production** deployments belonging to the project.
+
+**Rollback limitation:** Cloudflare only rolls back successful production deployments. DEPLO currently publishes projects to dedicated Pages preview branches named `site-{project-slug}`, so those preview deployments are not valid rollback targets. The API deliberately rejects preview deployments instead of implying that rollback succeeded. Supporting rollback for every DEPLO project requires changing the hosting layout so each project has its own production deployment target.
+
 ## Account-owned GitHub project deployments
 
 When a user is signed in and Supabase plus Cloudflare Pages are configured, DEPLO can deploy a saved public GitHub project through its account-owned project record:
@@ -111,7 +121,7 @@ When a user is signed in and Supabase plus Cloudflare Pages are configured, DEPL
 - After a successful publish, DEPLO saves the deployment URL and update timestamp to that same account-owned project record.
 - `GET /api/deploy/history?projectId={projectId}` verifies ownership before returning Cloudflare deployment history for that project's Pages branch.
 
-These endpoints support public GitHub repositories with a root `index.html` only. They do not execute repository scripts or build framework applications. Private GitHub repository access, Git push auto-deploys, deployment cancellation, live build logs, and deployment rollback are not included. The shared upload-token endpoints remain separate legacy upload flows and are not substitutes for account-owned authorization.
+Account-owned deployment endpoints support public and authorized private GitHub repositories with a root `index.html` only. They do not execute repository scripts or build framework applications. Git push auto-deploys and deployment cancellation are not included. The shared upload-token endpoints remain separate legacy upload flows and are not substitutes for account-owned authorization.
 
 ## Cloudflare Pages static deployment (early milestone)
 
@@ -167,7 +177,7 @@ Run the automated test suite with:
 npm test
 ```
 
-The GitHub repository inspection endpoint only accepts canonical public GitHub repository URLs. It does not provide private repository access or deployment execution.
+The GitHub repository inspection endpoint accepts canonical GitHub repository URLs. Private repository access requires a signed-in session and the approved GitHub OAuth permission. Account-owned deployment requires Supabase and Cloudflare configuration.
 
 ## Documentation
 
