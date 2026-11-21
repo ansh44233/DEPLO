@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- Add GitHub OAuth sign-in with short-lived state validation and signed HttpOnly sessions.
+- Add session inspection and origin-checked sign-out endpoints, plus dashboard sign-in controls.
+- Document that account identity is not yet project ownership or private-repository authorization.
+
+
 All notable changes to DEPLO are documented here.
 
 ## Unreleased
