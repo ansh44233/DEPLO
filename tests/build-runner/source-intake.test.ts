@@ -118,3 +118,13 @@ test("maintenance cleanup keeps recent source archives", async t => {
   assert.deepEqual(await cleanup.json(), { sourcesRemoved: 0, recordsRemoved: 0, bytesFreed: 0 });
   assert.equal((await readdir(dir)).filter(name => name.endsWith(".zip")).length, 1);
 });
+
+
+test("runner HTTP server applies bounded header, request, and keep-alive limits", () => {
+  const server = createRunnerServer({ token, dataDir: join(tmpdir(), "deplo-runner-unused") });
+  assert.equal(server.headersTimeout, 15_000);
+  assert.equal(server.requestTimeout, 120_000);
+  assert.equal(server.keepAliveTimeout, 5_000);
+  assert.equal(server.maxRequestsPerSocket, 100);
+  assert.equal(server.maxHeadersCount, 50);
+});
