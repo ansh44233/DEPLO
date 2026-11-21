@@ -48,6 +48,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const config = readCloudflarePagesConfig();
   if (!config) return jsonError("Cloudflare Pages deployment is not configured on the server.", 503);
 
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_ZIP_BYTES + 64 * 1024) {
+    return jsonError("The upload request exceeds the 25 MiB request limit.", 413);
+  }
+
   let form: FormData;
   try {
     form = await request.formData();
