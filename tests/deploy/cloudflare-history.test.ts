@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   listCloudflarePagesDeployments,
   normalizeCloudflareDeployments,
+  rollbackCloudflarePagesDeployment,
 } from "../../lib/deploy/cloudflare-history";
 
 const config = {
@@ -69,5 +70,70 @@ test("rejects failed Cloudflare API responses without leaking credentials", asyn
     listCloudflarePagesDeployments(config, async () =>
       new Response(JSON.stringify({ success: false, errors: [{ message: "bad token" }] }), { status: 200 })),
     /invalid deployment history response/,
+  );
+});
+
+
+const deploymentId = "f64788e9-fccd-4d4a-a28a-cb84f88f6e12";
+
+test("rolls back a deployment using the authenticated Cloudflare API", async () => {
+  let requestUrl = "";
+  let requestInit: RequestInit | undefined;
+  const deployment = await rollbackCloudflarePagesDeployment(config, deploymentId, async (input, init) => {
+    requestUrl = String(input);
+    requestInit = init;
+    return new Response(JSON.stringify({
+      success: true,
+      result: {
+        id: deploymentId,
+        url: "https://production.deplo-sites.pages.dev",
+        environment: "production",
+        latest_stage: { status: "success" },
+        deployment_trigger: { metadata: { branch: "site-demo", commit_message: "Previous stable version" } },
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+
+  assert.match(requestUrl, new RegExp(deploymentId + "/rollback$"));
+  assert.equal(requestInit?.method, "POST");
+  assert.equal(new Headers(requestInit?.headers).get("authorization"), "Bearer secret-token");
+  assert.equal(requestInit?.cache, "no-store");
+  assert.equal(deployment.id, deploymentId);
+  assert.equal(deployment.environment, "production");
+  assert.equal(deployment.status, "success");
+});
+
+test("rejects invalid deployment IDs before making a provider request", async () => {
+  let called = false;
+  await assert.rejects(
+    rollbackCloudflarePagesDeployment(config, "not-a-uuid", async () => {
+      called = true;
+      return new Response("{}");
+    }),
+    /Invalid Cloudflare deployment ID/,
+  );
+  assert.equal(called, false);
+});
+
+test("rejects rollback responses that do not confirm production success", async () => {
+  await assert.rejects(
+    rollbackCloudflarePagesDeployment(config, deploymentId, async () => new Response(JSON.stringify({
+      success: true,
+      result: {
+        id: deploymentId,
+        url: "https://preview.deplo-sites.pages.dev",
+        environment: "preview",
+        latest_stage: { status: "success" },
+      },
+    }), { status: 200 })),
+    /did not confirm a successful production rollback/,
+  );
+});
+
+test("rejects failed provider rollback responses", async () => {
+  await assert.rejects(
+    rollbackCloudflarePagesDeployment(config, deploymentId, async () =>
+      new Response(JSON.stringify({ success: false, errors: [{ message: "rollback denied" }] }), { status: 200 })),
+    /invalid rollback response/,
   );
 });
