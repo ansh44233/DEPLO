@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  getCloudflarePagesDeploymentLogs,
   listCloudflarePagesDeployments,
   normalizeCloudflareDeployments,
   rollbackCloudflarePagesDeployment,
@@ -135,5 +136,56 @@ test("rejects failed provider rollback responses", async () => {
     rollbackCloudflarePagesDeployment(config, deploymentId, async () =>
       new Response(JSON.stringify({ success: false, errors: [{ message: "rollback denied" }] }), { status: 200 })),
     /invalid rollback response/,
+  );
+});
+
+
+test("loads deployment logs with owner-authorized provider credentials and bounds output", async () => {
+  let requestUrl = "";
+  let requestInit: RequestInit | undefined;
+  const logs = await getCloudflarePagesDeploymentLogs(config, deploymentId, async (input, init) => {
+    requestUrl = String(input);
+    requestInit = init;
+    return new Response(JSON.stringify({
+      success: true,
+      result: {
+        data: [
+          { ts: "2026-11-21T10:00:00.000Z", line: "Build started" },
+          { ts: 123, line: "Asset uploaded" },
+          { ts: "2026-11-21T10:00:02.000Z", line: "Deployment complete" },
+          { ts: "ignored", line: 42 },
+        ],
+      },
+    }), { status: 200 });
+  });
+
+  assert.match(requestUrl, new RegExp(deploymentId + "/history/logs$"));
+  assert.equal(requestInit?.method, "GET");
+  assert.equal(new Headers(requestInit?.headers).get("authorization"), "Bearer secret-token");
+  assert.equal(requestInit?.cache, "no-store");
+  assert.deepEqual(logs, [
+    { timestamp: "2026-11-21T10:00:00.000Z", line: "Build started" },
+    { timestamp: null, line: "Asset uploaded" },
+    { timestamp: "2026-11-21T10:00:02.000Z", line: "Deployment complete" },
+  ]);
+});
+
+test("rejects malformed deployment log IDs before fetching", async () => {
+  let called = false;
+  await assert.rejects(
+    getCloudflarePagesDeploymentLogs(config, "bad-id", async () => {
+      called = true;
+      return new Response("{}");
+    }),
+    /Invalid Cloudflare deployment ID/,
+  );
+  assert.equal(called, false);
+});
+
+test("rejects invalid deployment log provider responses", async () => {
+  await assert.rejects(
+    getCloudflarePagesDeploymentLogs(config, deploymentId, async () =>
+      new Response(JSON.stringify({ success: true, result: { data: "not-an-array" } }), { status: 200 })),
+    /invalid deployment logs response/,
   );
 });
