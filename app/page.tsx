@@ -200,7 +200,7 @@ export default function Home() {
           ].map(({ label, icon: Icon }) => (
             <button key={label} className={`nav-item ${activeNav === label ? "active" : ""}`} onClick={() => setActiveNav(label)}>
               <Icon size={17} /><span>{label}</span>
-              {label === "Deployments" && <span className="nav-count">4</span>}
+              {label === "Deployments" && <span className="nav-count">{cloudflareDeployments.length}</span>}
             </button>
           ))}
         </nav>
@@ -215,7 +215,7 @@ export default function Home() {
         <div className="sidebar-bottom">
           <div className="usage-card">
             <div className="usage-top"><span>Workspace mode</span><span>Preview</span></div>
-            <div className="preview-note">Sample projects and deployment records</div>
+            <div className="preview-note">Sample projects · live deployment history</div>
             <small>No builds or hosting usage are being counted yet.</small>
             <button onClick={() => setNotice("Billing and usage tracking will be configured after a deployment provider is connected.")}>About preview <ArrowUpRight size={13} /></button>
           </div>
@@ -245,7 +245,7 @@ export default function Home() {
             <div>
               <div className="eyebrow"><Sparkles size={13} /> DEPLO · WORKSPACE PREVIEW</div>
               <h1>{activeNav === "Overview" ? "Good afternoon." : activeNav}</h1>
-              <p className="page-subtitle">Explore the workspace UI. Sample records are shown until deployments are connected.</p>
+              <p className="page-subtitle">Manage projects and inspect deployment activity from your connected provider.</p>
             </div>
             <button className="primary-button" onClick={() => setModal("github")}><Plus size={17} /> New project</button>
           </div>
@@ -312,7 +312,7 @@ export default function Home() {
           <section className="panel deployments-panel">
             <div className="panel-heading">
               <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
-              <button className="text-button" onClick={() => setActiveNav("Deployments")}>Deployment history <ArrowUpRight size={14} /></button>
+              <button className="text-button" onClick={() => setActiveNav("Deployments")}>Refreshable provider history <ArrowUpRight size={14} /></button>
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
