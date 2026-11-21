@@ -6,7 +6,7 @@ import {
   Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
   ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
   FileArchive, FileCode2, FolderGit2, Gauge, Github, Globe2, HardDrive,
-  LayoutDashboard, LifeBuoy, MoreHorizontal, Plus, Search, Settings2,
+  LayoutDashboard, LifeBuoy, Plus, Search, Settings2,
   RefreshCw, RotateCcw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
 } from "lucide-react";
 
@@ -89,7 +89,7 @@ export default function Home() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
-  const [projectDeploying, setProjectDeploying] = useState(false);
+  const [projectDeploying, setProjectDeploying] = useState(false);\n  const [projectDeleting, setProjectDeleting] = useState(false);
   const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
   const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
   const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
@@ -232,6 +232,35 @@ export default function Home() {
   }
 
 
+
+  async function deleteSelectedProject() {
+    if (!selected.id || !signedInUser || projectDeleting) return;
+    const confirmed = window.confirm(
+      "Permanently delete " + selected.name + " and its hosted Cloudflare Pages site, including deployment history? This cannot be undone."
+    );
+    if (!confirmed) return;
+
+    setProjectDeleting(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id), { method: "DELETE" });
+      const data = await response.json() as { deleted?: boolean; hostedSiteRemoved?: boolean; error?: string };
+      if (!response.ok || !data.deleted) throw new Error(data.error || "Project deletion failed.");
+      const remaining = projects.filter((project) => project.id !== selected.id);
+      setProjects(remaining);
+      setActiveProject(remaining[0]?.name ?? "");
+      setCloudflareDeployments([]);
+      setLogsDeploymentId(null);
+      setDeploymentLogs([]);
+      setNotice(data.hostedSiteRemoved
+        ? "Project and its Cloudflare Pages site were deleted."
+        : "Project deleted. It did not have a hosted Cloudflare Pages site.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Project deletion failed.");
+    } finally {
+      setProjectDeleting(false);
+    }
+  }
 
   async function openDeploymentLogs(deploymentId: string) {
     if (!selected.id || !signedInUser) return;
@@ -571,7 +600,7 @@ export default function Home() {
             <section className="panel selected-panel">
               <div className="panel-heading">
                 <div><div className="section-kicker">SELECTED PROJECT</div><h2>{selected.name}</h2></div>
-                <button className="icon-button subtle" aria-label="Project options"><MoreHorizontal size={18} /></button>
+                {selected.id && signedInUser && <button className="text-button" onClick={() => void deleteSelectedProject()} disabled={projectDeleting}>{projectDeleting ? "Deleting…" : "Delete project"}</button>}
               </div>
               <div className="selected-domain"><Globe2 size={15} /><span>{selected.domain}</span><ExternalLink size={13} /></div>
               <div className="selected-status"><span className={"status-dot " + (selected.status === "Connected" ? "status-dot-idle" : "")} /> {selected.status === "Connected" ? "Repository connected · not deployed" : "Production deployment is healthy"}</div>
