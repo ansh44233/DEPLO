@@ -20,8 +20,12 @@ function callbackUrl(): string | null {
 }
 
 function finish(request: NextRequest, result: "error" | "success", sessionToken?: string) {
-  const base = process.env.DEPLO_BASE_URL;
-  const destination = new URL("/", base || request.nextUrl.origin);
+  let destination: URL;
+  try {
+    destination = new URL("/", process.env.DEPLO_BASE_URL || request.nextUrl.origin);
+  } catch {
+    destination = new URL("/", request.nextUrl.origin);
+  }
   destination.searchParams.set("auth", result);
   const response = NextResponse.redirect(destination);
   response.cookies.set("deplo_oauth_state", "", {
