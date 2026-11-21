@@ -9,6 +9,11 @@ import {
   ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
 } from "lucide-react";
 
+type RepositoryInfo = {
+  fullName: string; description: string | null; url: string; defaultBranch: string;
+  stars: number; language: string | null; branches: { name: string; commit: string }[];
+};
+
 type Project = {
   name: string;
   domain: string;
@@ -35,7 +40,12 @@ const deployments = [
 export default function Home() {
   const [activeProject, setActiveProject] = useState("frontend");
   const [activeNav, setActiveNav] = useState("Overview");
-  const [modal, setModal] = useState<"github" | "upload" | "html" | null>(null);
+  const [modal, setModal] = useState<"github" | "repo" | "upload" | "html" | null>(null);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [repoInfo, setRepoInfo] = useState<RepositoryInfo | null>(null);
+  const [repoBranch, setRepoBranch] = useState("");
+  const [repoLoading, setRepoLoading] = useState(false);
+  const [repoError, setRepoError] = useState("");
   const [search, setSearch] = useState("");
   const [projects, setProjects] = useState(initialProjects);
   const [notice, setNotice] = useState("");
@@ -47,6 +57,33 @@ export default function Home() {
     [projects, search]
   );
 
+  async function inspectRepository() {
+    setRepoLoading(true); setRepoError(""); setRepoInfo(null);
+    try {
+      const response = await fetch("/api/github/repository?url=" + encodeURIComponent(repoUrl));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not inspect this repository.");
+      setRepoInfo({ ...data.repository, branches: data.branches });
+      setRepoBranch(data.repository.defaultBranch);
+    } catch (error) {
+      setRepoError(error instanceof Error ? error.message : "Something went wrong.");
+    } finally { setRepoLoading(false); }
+  }
+
+  function addRepositoryPreview() {
+    if (!repoInfo) return;
+    const projectName = repoInfo.fullName.split("/")[1].toLowerCase();
+    const newProject: Project = {
+      name: projectName, domain: "Not deployed yet",
+      source: "github.com/" + repoInfo.fullName, branch: repoBranch,
+      status: "Connected", updated: "Just now", accent: "violet",
+    };
+    setProjects((current) => [newProject, ...current.filter((project) => project.name !== projectName)]);
+    setActiveProject(projectName); setActiveNav("Projects");
+    setNotice("Repository added to this dashboard preview. It is not saved to an account or deployed yet.");
+    setModal(null);
+  }
+
   function startUpload(file: File | undefined) {
     if (!file) return;
     setFileName(file.name);
@@ -57,7 +94,7 @@ export default function Home() {
     <main className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#" aria-label="DEPLO home">
-          <span className="brand-mark"><span /></span>
+          <img className="brand-logo" src="/deplo-mark.svg" alt="" />
           <span>deplo</span>
           <span className="brand-beta">BETA</span>
         </a>
@@ -168,7 +205,7 @@ export default function Home() {
                 <button className="icon-button subtle" aria-label="Project options"><MoreHorizontal size={18} /></button>
               </div>
               <div className="selected-domain"><Globe2 size={15} /><span>{selected.domain}</span><ExternalLink size={13} /></div>
-              <div className="selected-status"><span className="status-dot" /> Production deployment is healthy</div>
+              <div className="selected-status"><span className={"status-dot " + (selected.status === "Connected" ? "status-dot-idle" : "")} /> {selected.status === "Connected" ? "Repository connected · not deployed" : "Production deployment is healthy"}</div>
               <div className="project-details">
                 <Detail label="Production branch" value={selected.branch} icon={<Github size={15} />} />
                 <Detail label="Latest deployment" value={selected.updated} icon={<Clock3 size={15} />} />
@@ -210,9 +247,22 @@ export default function Home() {
         <div className="modal">
           <div className="modal-head"><div><div className="eyebrow">NEW PROJECT</div><h2>Bring your code.</h2><p>Choose how you'd like to get started.</p></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Close"><X size={18} /></button></div>
           {modal === "github" ? <div className="modal-options">
-            <button className="source-option" onClick={() => setNotice("GitHub OAuth is not connected yet. We'll wire it up in the integration milestone.")}><span className="source-icon github-source"><Github size={20} /></span><span><strong>Import Git Repository</strong><small>Connect GitHub and deploy from a branch.</small></span><ArrowUpRight size={16} /></button>
+            <button className="source-option" onClick={() => { setRepoInfo(null); setRepoError(""); setRepoUrl(""); setModal("repo"); }}><span className="source-icon github-source"><Github size={20} /></span><span><strong>Import Git Repository</strong><small>Connect GitHub and deploy from a branch.</small></span><ArrowUpRight size={16} /></button>
             <button className="source-option" onClick={() => setModal("upload")}><span className="source-icon"><FileArchive size={20} /></span><span><strong>Upload a ZIP file</strong><small>Upload your project as a .zip archive.</small></span><ArrowUpRight size={16} /></button>
             <button className="source-option" onClick={() => setModal("html")}><span className="source-icon"><FileCode2 size={20} /></span><span><strong>Deploy a static HTML file</strong><small>Start with an index.html file.</small></span><ArrowUpRight size={16} /></button>
+          </div> : modal === "repo" ? <div className="repo-connect">
+            <label className="repo-label" htmlFor="repo-url">Public GitHub repository URL</label>
+            <div className="repo-input-row"><input id="repo-url" value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repository" /><button className="primary-button" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Checking…" : "Find repository"}</button></div>
+            <p className="repo-help">Public repositories are supported in this first integration step. Private repository OAuth is not connected yet.</p>
+            {repoError && <div className="repo-error" role="alert">{repoError}</div>}
+            {repoInfo && <div className="repo-result">
+              <div className="repo-result-top"><span className="source-icon github-source"><Github size={19} /></span><div><strong>{repoInfo.fullName}</strong><small>{repoInfo.description || "No repository description"}</small></div></div>
+              <div className="repo-meta"><span>{repoInfo.language || "Unknown language"}</span><span>★ {repoInfo.stars.toLocaleString()} stars</span><span>{repoInfo.branches.length} branches listed</span></div>
+              <label className="repo-label" htmlFor="repo-branch">Deployment branch</label>
+              <select id="repo-branch" value={repoBranch} onChange={(event) => setRepoBranch(event.target.value)}>{repoInfo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.name === repoInfo.defaultBranch ? " (default)" : ""}</option>)}</select>
+              <button className="primary-button repo-confirm" onClick={addRepositoryPreview}>Add repository to dashboard <ArrowUpRight size={15} /></button>
+              <p className="repo-help">This adds a preview entry only. Build execution, automatic deployments, and persistent account storage are upcoming steps.</p>
+            </div>}
           </div> : <div className="upload-zone"><input type="file" accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => startUpload(event.target.files?.[0])} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP files up to your configured upload limit" : "A standalone HTML file"}</span><button className="primary-button" onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}><ArrowDownToLine size={16} /> Browse files</button></div>}
           <div className="modal-foot"><ShieldCheck size={14} /> Your code stays yours. Provider connections are not configured yet.</div>
         </div>
