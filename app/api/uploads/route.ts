@@ -1,4 +1,4 @@
-import { mkdir, open } from "node:fs/promises";
+import { mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -66,14 +66,31 @@ export async function POST(request: NextRequest) {
     await handle.writeFile(bytes);
   } catch (error) {
     await handle.close();
-    const { unlink } = await import("node:fs/promises");
     await unlink(destination).catch(() => undefined);
     throw error;
   }
   await handle.close();
 
+  const metadata = {
+    uploadId,
+    fileName: file.name,
+    kind,
+    size: bytes.byteLength,
+    uploadedAt: new Date().toISOString(),
+  };
+  try {
+    await writeFile(join(storageRoot, `${uploadId}.json`), JSON.stringify(metadata), {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch (error) {
+    await unlink(destination).catch(() => undefined);
+    throw error;
+  }
+
   return NextResponse.json(
-    { uploadId, fileName: file.name, kind, size: bytes.byteLength, status: "stored_private" },
+    { ...metadata, status: "stored_private" },
     { status: 201 },
   );
 }
