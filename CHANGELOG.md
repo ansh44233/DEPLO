@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Account-owned project deletion endpoint and dashboard action, guarded by the verified GitHub account ID and project UUID.
+- Database tests confirming deletion is constrained by both project ID and owner ID; missing/unowned projects are not reported as deleted.
 - Owner-scoped Cloudflare Pages deployment log API with branch-membership checks, bounded/sanitized log output, and no-store responses.
 - Dashboard deployment log viewer for account-owned projects.
 - Owner-scoped Cloudflare production rollback endpoint with strict successful-production and project-branch checks.
