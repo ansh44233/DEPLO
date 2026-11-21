@@ -6,7 +6,7 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. The current repository is being scaffolded; deployment providers, authentication, storage, and production infrastructure are not yet configured.
+Early development. Public GitHub repository inspection and an authenticated local upload-storage endpoint are implemented. Per-user authentication, object storage, ZIP extraction, builds, deployment providers, and production infrastructure are not yet configured.
 
 ## Current GitHub import preview
 
