@@ -35,5 +35,5 @@ export function hasZipSignature(bytes: Uint8Array): boolean {
 
 export function hasHtmlDocument(bytes: Uint8Array): boolean {
   const html = new TextDecoder().decode(bytes);
-  return /<html[\\s>]/i.test(html) || /<!doctype\\s+html/i.test(html);
+  return /<html[\s>]/i.test(html) || /<!doctype\s+html/i.test(html);
 }
