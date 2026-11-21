@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Archive path traversal checks and metadata limits for the future ZIP extraction pipeline.
+- Upload security documentation covering zip-slip, archive expansion, and isolated build requirements.
 - Client-side preflight validation for ZIP and standalone HTML file selections.
 - File size limits of 25 MB for ZIP archives and 2 MB for HTML documents.
 - ZIP signature checks and basic complete-HTML-document checks.
