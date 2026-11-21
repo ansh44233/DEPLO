@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   }
   if (kind === "html") {
     const html = new TextDecoder().decode(bytes);
-    if (!/<html[\\s>]/i.test(html) && !/<!doctype\\s+html/i.test(html)) {
+    if (!/<html[\s>]/i.test(html) && !/<!doctype\s+html/i.test(html)) {
       return jsonError("The file must contain a complete HTML document.", 400);
     }
   }
