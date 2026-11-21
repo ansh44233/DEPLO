@@ -34,6 +34,7 @@ type CloudflareDeployment = {
   createdAt: string | null;
   branch: string | null;
   commitMessage: string | null;
+  commitSha: string | null;
   status: "success" | "failure" | "building" | "unknown";
 };
 
@@ -366,6 +367,7 @@ export default function Home() {
     id: deployment.id,
     project: deployment.environment,
     message: deployment.commitMessage || deployment.url,
+    commitSha: deployment.commitSha,
     branch: deployment.branch || "—",
     time: deployment.createdAt ? new Date(deployment.createdAt).toLocaleString() : "—",
     status: deployment.status === "success" ? "Ready" : deployment.status === "failure" ? "Failed" : deployment.status === "building" ? "Building" : "Unknown",
@@ -708,7 +710,7 @@ export default function Home() {
                   {displayDeployments.map((deployment) => (
                     <tr key={deployment.id}>
                       <td><span className="table-project-icon"><Code2 size={14} /></span><strong>{deployment.project}</strong></td>
-                      <td><span className="deployment-message">{deployment.message}</span><small>{deployment.id}</small></td>
+                      <td><span className="deployment-message">{deployment.message}</span>{deployment.commitSha && <small title={deployment.commitSha}>Commit {deployment.commitSha.slice(0, 7)}</small>}<small>{deployment.id}</small></td>
                       <td><span className="branch-chip"><Github size={12} /> {deployment.branch}</span></td>
                       <td><span className={`health-tag ${deployment.status === "Ready" ? "healthy" : deployment.status.toLowerCase()}`}><i />{deployment.status}</span></td>
                       <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
