@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
     const avatarUrl = typeof profile.avatar_url === "string" &&
       profile.avatar_url.startsWith("https://") ? profile.avatar_url : null;
     const token = createSessionToken({
-      id: profile.id,
+      id: profile.id as number,
       login: profile.login,
       name: typeof profile.name === "string" ? profile.name.slice(0, 100) : null,
       avatarUrl,
