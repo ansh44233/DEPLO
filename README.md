@@ -6,7 +6,7 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. GitHub sign-in, encrypted private-repository access, account-owned projects, static GitHub/ZIP/HTML publishing, provider deployment history, and owner-scoped deployment log retrieval are implemented. Cloudflare and Supabase credentials must still be configured and verified before live use.
+Early development. GitHub sign-in, encrypted private-repository access, account-owned projects, static GitHub/ZIP/HTML publishing, provider deployment history, webhook retries, and GitHub App installation foundations are implemented. Cloudflare and Supabase credentials must still be configured and verified before live use.
 
 ## Current GitHub import preview
 
@@ -248,3 +248,8 @@ Required server environment:
 - `SUPABASE_SERVICE_ROLE_KEY`
 
 **Current scope:** this endpoint securely records push events in the private database inbox and returns `202 Accepted`. It does not yet build or deploy a site. A separately authenticated queue worker and project-to-repository matching are required for automatic redeployment; do not interpret `queued: true` as a completed deployment.
+
+
+## GitHub App installation foundation
+
+DEPLO includes an account-bound GitHub App installation flow and server-side installation-token minting foundation. Configure the app with Contents and Metadata read-only permissions, a setup URL at `/api/auth/github/install/callback`, and the push webhook URL at `/api/webhooks/github`. Apply migration `0004_github_app_installations.sql`. See [GitHub App setup](docs/github-app.md). Private-repository unattended webhook deployment is not active until the worker is integrated with installation tokens.

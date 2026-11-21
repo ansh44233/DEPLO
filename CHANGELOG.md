@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- GitHub App installation foundation with signed-in account binding, short-lived state validation, app-installation verification, and server-only installation-token minting using read-only repository permissions.
+- GitHub App installation migration, setup documentation, and dashboard entry point for connecting private-repository deployment access.
 - Signed GitHub push webhook receiver with raw-body HMAC verification, strict payload validation, bounded request size, and idempotent delivery inbox migration.
 - Documented webhook setup and explicitly scoped the current endpoint to secure event ingestion; deployment worker is a subsequent milestone.
 - Owner-verified project deletion now removes the matching isolated Cloudflare Pages site and deployment history before deleting DEPLO project metadata, with safe retry behavior and explicit dashboard confirmation.
