@@ -61,6 +61,29 @@ curl -X POST "http://localhost:3000/api/uploads/<upload-id>/extract" \\
 
 The endpoint rejects unsafe paths, duplicate paths, symbolic links and special files, oversized archives, and excessive compression ratios. It streams entries to disk and enforces the actual expanded-byte limit. Extracted files are not publicly served and are not executed.
 
+## Cloudflare Pages static deployment (early milestone)
+
+The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through Wrangler.
+
+Before using it:
+1. Create a **Direct Upload** Cloudflare Pages project in your Cloudflare account. Set its name in `CLOUDFLARE_PAGES_PROJECT_NAME`.
+2. Create a Cloudflare API token with Pages Write permission.
+3. Configure `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_PAGES_PROJECT_NAME` on the server.
+4. Keep `DEPLO_UPLOAD_TOKEN` private; do not put it in browser code.
+
+Example request:
+
+```bash
+curl -X POST "http://localhost:3000/api/uploads/<upload-id>/deploy" \
+  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"projectSlug":"my-website"}'
+```
+
+DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a Pages preview branch (for example, `site-my-website`). The returned URL comes from Wrangler/Cloudflare.
+
+This integration requires a configured Cloudflare account and a pre-created Pages project. No live provider deployment has been performed from this repository yet. Per-user accounts, project ownership, usage billing, cleanup, build execution, GitHub private-repository OAuth, and custom domains remain future work.
+
 ## Upload archive security
 
 The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork for the extraction pipeline. Build execution and deployment are not implemented yet.
@@ -77,7 +100,7 @@ The archive safety policy defines path traversal checks and conservative limits 
 
 ## Local development
 
-Requirements: Node.js 20+ and npm.
+Requirements: Node.js 22.12+ and npm.
 
 ```bash
 npm install
