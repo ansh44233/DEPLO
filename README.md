@@ -6,7 +6,7 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. The current repository is being scaffolded; deployment providers, authentication, storage, and production infrastructure are not yet configured.
+Early development. Public GitHub repository inspection and an authenticated local upload-storage endpoint are implemented. Per-user authentication, object storage, ZIP extraction, builds, deployment providers, and production infrastructure are not yet configured.
 
 ## Current GitHub import preview
 
@@ -20,18 +20,39 @@ This is an early integration milestone, not a production deployment pipeline:
 
 The inspection endpoint is `GET /api/github/repository?url=<public-repository-url>`.
 
+## Server-side upload endpoint (early milestone)
+
+An authenticated `POST /api/uploads` endpoint accepts multipart form uploads and stores validated files in a private local directory on a persistent Node.js host.
+
+- Set `DEPLO_UPLOAD_TOKEN` to a random secret of at least 32 characters.
+- Optionally set `DEPLO_UPLOAD_DIR` to a private persistent directory outside the public web root.
+- Send `Authorization: Bearer <token>` and multipart fields `kind` (`zip` or `html`) and `file`.
+- ZIP files are limited to 25 MB and checked for a ZIP signature; HTML files are limited to 2 MB and checked for an HTML document marker.
+- The endpoint returns a random upload ID; uploaded bytes are never served publicly by this route.
+
+Example:
+
+```bash
+curl -X POST http://localhost:3000/api/uploads \
+  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
+  -F "kind=html" \
+  -F "file=@index.html"
+```
+
+This local filesystem adapter requires persistent disk and a Node.js runtime. It is not suitable for ephemeral serverless filesystems. The upload token is a shared server-side gate, not per-user authentication; do not expose it in browser code. Project ownership, account authentication, quotas, cleanup, object storage, ZIP parsing/extraction, builds, and deployments are not implemented yet.
+
 ## Upload preflight (early milestone)
 
-The browser now checks selected ZIP and standalone HTML files before proceeding:
+The browser checks selected ZIP and standalone HTML files before upload:
 - ZIP archives: `.zip` extension, ZIP signature, and a 25 MB maximum.
 - HTML documents: `.html`/`.htm` extension, complete-document marker, and a 2 MB maximum.
 - Invalid selections are rejected with an inline message.
 
-These are client-side preflight checks only. Files are not uploaded, stored, extracted, built, or deployed yet. ZIP contents still require server-side archive inspection and safe extraction before production use.
+Client-side checks improve feedback, but the server independently validates every upload. ZIP contents still require archive inspection and safe extraction before production use.
 
 ## Upload archive security
 
-The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork only; ZIP parsing, extraction, storage, and deployment are not implemented yet.
+The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork only; ZIP parsing, extraction, build execution, and deployment are not implemented yet.
 
 ## Planned capabilities
 

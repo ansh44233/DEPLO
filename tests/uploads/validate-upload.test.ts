@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "../../lib/uploads/validate-upload";
+import { hasHtmlDocument, hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "../../lib/uploads/validate-upload";
 
 test("accepts a ZIP file within the configured limit", () => {
   assert.equal(validateUploadSelection("site.zip", 1024, "zip"), null);
@@ -27,4 +27,11 @@ test("recognizes ZIP local, empty archive, and spanning signatures", () => {
   assert.equal(hasZipSignature(Uint8Array.from([0x50, 0x4b, 0x05, 0x06])), true);
   assert.equal(hasZipSignature(Uint8Array.from([0x50, 0x4b, 0x07, 0x08])), true);
   assert.equal(hasZipSignature(Uint8Array.from([0x00, 0x00, 0x00, 0x00])), false);
+});
+
+
+test("recognizes complete HTML documents and rejects plain text", () => {
+  assert.equal(hasHtmlDocument(new TextEncoder().encode("<!doctype html><html><body>Hello</body></html>")), true);
+  assert.equal(hasHtmlDocument(new TextEncoder().encode("<html lang='en'>")), true);
+  assert.equal(hasHtmlDocument(new TextEncoder().encode("just some text")), false);
 });
