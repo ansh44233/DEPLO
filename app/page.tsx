@@ -173,6 +173,9 @@ export default function Home() {
       const response = await fetch("/api/auth/logout", { method: "POST" });
       if (!response.ok) throw new Error("Sign-out failed.");
       setSignedInUser(null);
+      setProjects(initialProjects);
+      setActiveProject("frontend");
+      setProjectsError("");
       setNotice("You have signed out of DEPLO.");
     } catch {
       setNotice("Could not sign out. Please try again.");
@@ -384,8 +387,10 @@ export default function Home() {
                 <div className="search-field"><Search size={15} /><input id="project-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search projects..." /></div>
                 <button className="filter-button"><span>All projects</span><ChevronDown size={14} /></button>
               </div>
+              {projectsError && <div className="repo-error" role="alert">{projectsError}</div>}
               <div className="project-list">
-                {filteredProjects.map((project) => (
+                {projectsLoading && <div className="empty-state">Loading your saved projects…</div>}
+                {!projectsLoading && filteredProjects.map((project) => (
                   <button key={project.name} className={`project-row ${activeProject === project.name ? "selected" : ""}`} onClick={() => setActiveProject(project.name)}>
                     <div className={`project-icon ${project.accent}`}><Code2 size={18} /></div>
                     <div className="project-main"><strong>{project.name}</strong><small>{project.source}</small></div>
