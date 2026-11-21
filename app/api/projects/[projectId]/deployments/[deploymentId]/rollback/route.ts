@@ -3,6 +3,7 @@ import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
 import { readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
 import { listCloudflarePagesDeployments, rollbackCloudflarePagesDeployment } from "@/lib/deploy/cloudflare-history";
+import { getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,18 +43,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const config = readCloudflarePagesConfig(process.env);
   if (!config) return errorResponse("Cloudflare Pages is not configured.", 503);
 
+  let pagesTarget;
   try {
-    const expectedBranch = "site-" + project.slug;
-    const deployments = await listCloudflarePagesDeployments(config);
+    pagesTarget = getAccountPagesTarget(config, user.id, project.slug);
+  } catch {
+    return errorResponse("The account project has invalid Cloudflare deployment settings.", 422);
+  }
+
+  try {
+    const deployments = await listCloudflarePagesDeployments(pagesTarget.config);
     const target = deployments.find((deployment) => deployment.id === deploymentId);
-    if (!target || target.branch !== expectedBranch) {
+    if (!target || target.branch !== pagesTarget.productionBranch) {
       return errorResponse("This deployment does not belong to the selected project.", 404);
     }
     if (target.environment !== "production" || target.status !== "success") {
       return errorResponse("Only successful production deployments can be rolled back.", 422);
     }
 
-    const deployment = await rollbackCloudflarePagesDeployment(config, deploymentId);
+    const deployment = await rollbackCloudflarePagesDeployment(pagesTarget.config, deploymentId);
     let savedProject;
     try {
       savedProject = await updateOwnedProjectDeployment(user.id, project.id, deployment.url);
