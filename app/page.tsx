@@ -19,6 +19,7 @@ type DeploymentReadiness = {
   provider: "cloudflare-pages";
   configured: boolean;
   uploadAuthenticationConfigured: boolean;
+  legacySharedProjectConfigured: boolean;
   ready: boolean;
   missing: string[];
 };
