@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CloudflarePagesConfig } from "./cloudflare-pages";
+import type { CloudflarePagesConfig, CloudflarePagesCredentials } from "./cloudflare-pages";
 
 export type AccountPagesTarget = {
   config: CloudflarePagesConfig;
@@ -33,7 +33,7 @@ function verifyProjectPayload(payload: CloudflareProjectPayload, config: Cloudfl
 }
 
 export function getAccountPagesTarget(
-  baseConfig: CloudflarePagesConfig,
+  baseConfig: CloudflarePagesCredentials,
   ownerGithubId: number,
   projectSlug: string,
 ): AccountPagesTarget {
