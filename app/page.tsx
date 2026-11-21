@@ -105,7 +105,7 @@ export default function Home() {
       }
     } else {
       const html = await file.text();
-      if (!/<html[\\s>]/i.test(html) && !/<!doctype\\s+html/i.test(html)) {
+      if (!/<html[\s>]/i.test(html) && !/<!doctype\s+html/i.test(html)) {
         setUploadError("The file should contain a complete HTML document.");
         setFileName("");
         return;
