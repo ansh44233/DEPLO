@@ -28,15 +28,21 @@ A successful runner result exposes an opaque `artifactId`. DEPLO retrieves it on
 
 The artifact is a ZIP containing the contents of the selected build output directory directly at its root, including a root `index.html`. The runner must keep the artifact immutable and available for retries until DEPLO acknowledges successful publication or the retention window expires.
 
-DEPLO streams the response to a private temporary file with a 100 MiB archive cap, refuses redirects, checks the ZIP signature, and extracts it through the existing path traversal, duplicate-path, symlink, entry-count, expanded-size, and compression-ratio protections. It then independently checks for a root HTML entry point, rejects private/blocked static paths, enforces Cloudflare Pages file limits, and compares extracted file count and bytes with the runner's reported metadata. A mismatch is rejected. Temporary artifacts must be removed after processing.
+DEPLO streams the response to private temporary storage with a 100 MiB archive cap, refuses redirects, checks the ZIP signature, and extracts it through the existing path traversal, duplicate-path, symlink, entry-count, expanded-size, and compression-ratio protections. It then independently checks for a root HTML entry point, rejects private/blocked static paths, enforces Cloudflare Pages file limits, and compares extracted file count and bytes with the runner's reported metadata.
 
 The artifact ID is never treated as a URL or filesystem path. The downloader constructs its request from the configured runner origin only.
 
-## Queue worker integration
+## Durable artifact publication
 
-`POST /api/internal/build-jobs/process` is protected by `DEPLO_BUILD_WORKER_SECRET`. A scheduler should call it repeatedly. Each invocation claims at most one poll or one pending build using atomic Supabase RPCs. Runner IDs are persisted in migration `0008_async_build_runner_jobs.sql`; poll claims prevent concurrent workers from updating the same job. Transient failures use the existing retry/backoff policy.
+A successful runner poll records the artifact metadata and leaves the build job in its processing state. A separate atomic publication claim, introduced by migration `0009_build_artifact_publication.sql`, leases one artifact-ready job at a time. The worker then:
 
-A runner result of `succeeded` is recorded as **artifact-ready**, not as a successful DEPLO deployment. The artifact download/validation helper is implemented separately; queue publication is not enabled until a durable artifact handoff and Cloudflare publishing worker are connected. No artifact is currently downloaded or published by the queue worker.
+1. Loads the project using both its ID and owner GitHub account ID.
+2. Downloads and independently validates the artifact.
+3. Resolves the deterministic account/project Cloudflare Pages target and verifies its production branch.
+4. Publishes the validated directory to that isolated Pages project.
+5. Saves the returned Pages URL to the owner-scoped project record and only then marks the build job succeeded.
+
+Publication claims expire after 10 minutes so abandoned work can be retried. A failed publication uses the existing capped build-job retry policy; a repeated publish targets the same project and production branch. The worker removes temporary artifact files in a `finally` block. The scheduler must invoke `POST /api/internal/build-jobs/process` repeatedly to advance submission, polling, and publication. The route allows up to 300 seconds for artifact retrieval and Pages publishing.
 
 ## Required runner isolation
 
@@ -55,9 +61,10 @@ Before enabling a real runner, its implementation must provide:
 - `DEPLO_BUILD_RUNNER_URL`: HTTPS base URL for the isolated runner (localhost is permitted for local development only).
 - `DEPLO_BUILD_RUNNER_TOKEN`: random token of at least 32 characters.
 - `DEPLO_BUILD_WORKER_SECRET`: random scheduler/worker bearer secret of at least 32 characters.
+- Cloudflare Pages credentials: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
 
-All three are server-only. The queue worker returns 503 until the runner is configured. Migration `0008_async_build_runner_jobs.sql` must be applied to Supabase before the worker is enabled.
+All values are server-only. Migrations `0008_async_build_runner_jobs.sql` and `0009_build_artifact_publication.sql` must be applied to Supabase before enabling the queue worker.
 
-## Current behavior
+## Current behavior and limitations
 
-Framework detection and queue processing remain metadata/protocol foundations until a real isolated runner is deployed. No arbitrary user code is executed by the DEPLO web host. Static HTML/ZIP/GitHub deployment paths continue to publish already-static files only. The artifact downloader and validator are tested building blocks, not a live runner or deployment pipeline.
+The DEPLO worker can now hand off a validated remote artifact to the isolated per-project Cloudflare Pages target and persist the resulting URL. However, this is not an end-to-end live framework deployment until an actual isolated runner service is provisioned, configured, and verified. The DEPLO web host does not execute repository code. Static HTML/ZIP/GitHub deployment paths continue to publish already-static files only.

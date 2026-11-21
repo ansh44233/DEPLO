@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cancelOwnedBuildJob, createOwnedBuildJob, listOwnedBuildJobs, type OwnedBuildJob } from "../../lib/db/supabase-build-jobs";
+import { cancelOwnedBuildJob, claimNextArtifactPublishJob, createOwnedBuildJob, listOwnedBuildJobs, type OwnedBuildJob } from "../../lib/db/supabase-build-jobs";
 
 const env = { SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "server-only-secret" };
 const job: OwnedBuildJob = {
@@ -43,6 +43,20 @@ test("cancels only pending or processing jobs belonging to the account and proje
   assert.equal(url.searchParams.get("status"), "in.(pending,processing)");
   assert.equal(JSON.parse(body).status, "cancelled");
   assert.equal(result?.status, "cancelled");
+});
+
+test("claims a durable artifact publication job through the service-only RPC", async () => {
+  let requested = "";
+  let method = "";
+  const fetcher: typeof fetch = async (url, init) => {
+    requested = String(url);
+    method = init?.method ?? "";
+    return new Response(JSON.stringify([{ ...job, runner_status: "succeeded", artifact_id: "artifact_123", artifact_file_count: 1, artifact_bytes: 42 }]));
+  };
+  const result = await claimNextArtifactPublishJob(env, fetcher);
+  assert.equal(new URL(requested).pathname, "/rest/v1/rpc/claim_next_deplo_artifact_publish_job");
+  assert.equal(method, "POST");
+  assert.equal(result?.artifact_id, "artifact_123");
 });
 
 test("rejects missing Supabase configuration", async () => {
