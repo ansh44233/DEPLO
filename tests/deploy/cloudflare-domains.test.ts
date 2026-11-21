@@ -55,6 +55,10 @@ test("removes a domain with a safely encoded hostname", async () => {
   assert.equal(method, "DELETE");
 });
 
+test("treats a 204 response as a successful domain removal", async () => {
+  await removePagesDomain(config, "example.com", async () => new Response(null, { status: 204 }));
+});
+
 test("fails closed when Cloudflare rejects domain creation", async () => {
   await assert.rejects(addPagesDomain(config, "example.com", async () =>
     new Response(JSON.stringify({ success: false, errors: [{ message: "provider detail" }] }), { status: 400 }),

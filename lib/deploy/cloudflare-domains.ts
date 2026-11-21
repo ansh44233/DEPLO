@@ -72,6 +72,7 @@ async function cloudflareRequest<T>(
     throw new Error("Cloudflare custom-domain service is temporarily unavailable.");
   }
   if (response.status === 404 && init.method === "DELETE") return undefined as T;
+  if (response.status === 204 && init.method === "DELETE") return undefined as T;
   let payload: CloudflareEnvelope<T>;
   try { payload = await response.json() as CloudflareEnvelope<T>; }
   catch { throw new Error("Cloudflare returned an invalid custom-domain response."); }
