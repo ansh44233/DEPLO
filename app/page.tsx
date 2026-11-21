@@ -23,6 +23,8 @@ type DeploymentReadiness = {
   missing: string[];
 };
 
+type CloudflareDeploymentLog = { timestamp: string | null; line: string };
+
 type CloudflareDeployment = {
   id: string;
   url: string;
@@ -88,6 +90,10 @@ export default function Home() {
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
   const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
+  const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
+  const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -224,6 +230,28 @@ export default function Home() {
     }
   }
 
+
+
+  async function openDeploymentLogs(deploymentId: string) {
+    if (!selected.id || !signedInUser) return;
+    setLogsDeploymentId(deploymentId);
+    setDeploymentLogs([]);
+    setLogsError("");
+    setLogsLoading(true);
+    try {
+      const response = await fetch(
+        "/api/projects/" + encodeURIComponent(selected.id) + "/deployments/" + encodeURIComponent(deploymentId) + "/logs",
+        { cache: "no-store" },
+      );
+      const data = await response.json() as { logs?: CloudflareDeploymentLog[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Deployment logs could not be loaded.");
+      setDeploymentLogs(Array.isArray(data.logs) ? data.logs : []);
+    } catch (error) {
+      setLogsError(error instanceof Error ? error.message : "Deployment logs could not be loaded.");
+    } finally {
+      setLogsLoading(false);
+    }
+  }
 
   async function rollbackSelectedDeployment(deploymentId: string) {
     if (!selected.id || !signedInUser || rollbackDeploymentId) return;
@@ -574,6 +602,9 @@ export default function Home() {
                       <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
                       <td>
                         <div className="table-actions">
+                          <button className="icon-button table-more" onClick={() => void openDeploymentLogs(deployment.id)} title="View deployment logs" aria-label={`View logs for ${deployment.id}`}>
+                            <TerminalSquare size={15} />
+                          </button>
                           {deployment.canRollback && <button className="icon-button table-more" onClick={() => void rollbackSelectedDeployment(deployment.id)} disabled={rollbackDeploymentId !== null} title="Roll back production to this deployment" aria-label={`Roll back to ${deployment.id}`}>
                             <RotateCcw size={15} className={rollbackDeploymentId === deployment.id ? "spin" : ""} />
                           </button>}
@@ -615,6 +646,21 @@ export default function Home() {
           </div> : <div className="upload-zone"><input type="file" disabled={projectSaving} accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => void startUpload(event.target.files?.[0], modal === "upload" ? "zip" : "html")} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP archive · maximum 25 MB" : "HTML document · maximum 2 MB"}</span>{uploadError && <p className="repo-error" role="alert">{uploadError}</p>}<button className="primary-button" disabled={projectSaving} onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}>{projectSaving ? "Uploading and deploying…" : <><ArrowDownToLine size={16} /> Browse files</>}</button></div>}
           <div className="modal-foot"><ShieldCheck size={14} /> {signedInUser ? "Uploads are saved to your account and published through your configured provider." : "Sign in with GitHub to save uploads and deploy them to your account."}</div>
         </div>
+      </div>}
+      {logsDeploymentId && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLogsDeploymentId(null); }}>
+        <section className="modal logs-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-logs-title">
+          <div className="modal-head">
+            <div><div className="eyebrow">DEPLOYMENT OUTPUT</div><h2 id="deployment-logs-title">Deployment logs</h2><p>{logsDeploymentId}</p></div>
+            <button className="icon-button" onClick={() => setLogsDeploymentId(null)} aria-label="Close deployment logs"><X size={18} /></button>
+          </div>
+          {logsLoading ? <div className="empty-state">Loading deployment logs…</div>
+            : logsError ? <div className="repo-error" role="alert">{logsError}</div>
+            : deploymentLogs.length ? <div className="logs-output">{deploymentLogs.map((log, index) => <div className="log-line" key={logsDeploymentId + "-" + index}>
+              <time>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : "—"}</time><code>{log.line}</code>
+            </div>)}</div>
+            : <div className="empty-state">No log lines are available for this deployment.</div>}
+          <div className="modal-foot"><ShieldCheck size={14} /> Logs are fetched from Cloudflare and are visible only to this project's owner.</div>
+        </section>
       </div>}
     </main>
   );
