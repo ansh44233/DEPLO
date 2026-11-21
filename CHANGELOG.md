@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Signed GitHub push webhook receiver with raw-body HMAC verification, strict payload validation, bounded request size, and idempotent delivery inbox migration.
+- Documented webhook setup and explicitly scoped the current endpoint to secure event ingestion; deployment worker is a subsequent milestone.
 - Owner-verified project deletion now removes the matching isolated Cloudflare Pages site and deployment history before deleting DEPLO project metadata, with safe retry behavior and explicit dashboard confirmation.
 - Tests for provider deletion authorization, idempotent missing-project handling, empty success responses, and fail-closed errors.
 - Deterministic per-account Cloudflare Pages project provisioning with an isolated production branch for every account-owned site.
