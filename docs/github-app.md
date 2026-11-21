@@ -1,6 +1,6 @@
-# GitHub App installation foundation
+# GitHub App installation
 
-DEPLO includes an account-bound GitHub App installation flow for the future private-repository webhook worker.
+DEPLO supports account-bound GitHub App installations for automatic deployment of public and private static repositories.
 
 ## GitHub App configuration
 
@@ -24,8 +24,10 @@ Set these server-only variables:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-Apply migrations `0004_github_app_installations.sql` and `0005_github_app_installation_lifecycle.sql`. DEPLO removes deleted installation records and disables deployments while an installation is suspended; unsuspending restores the connection. The installation mapping stores the DEPLO account ID, GitHub installation ID, and installation account label. It does not store access tokens. Installation tokens are minted on demand using a short-lived RS256 app JWT and request only Contents and Metadata read permissions.
+Apply migrations `0004_github_app_installations.sql` and `0005_github_app_installation_lifecycle.sql`. DEPLO removes deleted installation records and disables deployments while an installation is suspended; unsuspending restores the connection.
 
-## Current scope
+Installation tokens are minted on demand using a short-lived RS256 app JWT and request only Contents and Metadata read permissions. Tokens are never stored. Automatic webhook deployments use the installation belonging to each DEPLO account and can access private repositories selected in that installation. Accounts without an installation mapping retain public-repository fallback behavior.
 
-This milestone provides the secure installation callback, account binding, database schema, and token-minting helper. The automatic deployment worker has not yet been switched to installation tokens; private-repository unattended deployment is not active until that worker integration is merged and configured. Existing private manual deployment continues to use the signed-in OAuth flow.
+## Deployment scope
+
+DEPLO publishes static sites with a root `index.html`. It does not execute repository scripts or arbitrary framework build commands. Private repository webhook deployments require the GitHub App to be installed and the repository selected. The webhook worker is invoked by the configured trusted scheduler.
