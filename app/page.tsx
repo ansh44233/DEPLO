@@ -19,7 +19,7 @@ type Project = {
   domain: string;
   source: string;
   branch: string;
-  status: "Healthy" | "Building" | "Failed";
+  status: "Healthy" | "Building" | "Failed" | "Connected";
   updated: string;
   accent: string;
 };
