@@ -74,6 +74,7 @@ async function getInstallationId(baseUrl: string, key: string, ownerGithubId: nu
     endpoint(baseUrl, "github_app_installations", {
       select: "installation_id",
       owner_github_id: "eq." + ownerGithubId,
+      suspended_at: "is.null",
       limit: "1",
     }),
     key,
