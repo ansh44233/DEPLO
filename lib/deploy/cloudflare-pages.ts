@@ -9,7 +9,7 @@ export type CloudflarePagesConfig = {
 };
 
 export function readCloudflarePagesConfig(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): CloudflarePagesConfig | null {
   const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? "";
   const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? "";
