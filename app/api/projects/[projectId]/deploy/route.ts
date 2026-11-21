@@ -64,7 +64,8 @@ async function downloadArchive(url: string, destination: string, accessToken: st
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
-  const accessToken = decryptGitHubToken(request.cookies.get("deplo_github_token")?.value, process.env.GITHUB_TOKEN_ENCRYPTION_KEY ?? "");\n  const user = verifySessionToken(
+  const accessToken = decryptGitHubToken(request.cookies.get("deplo_github_token")?.value, process.env.GITHUB_TOKEN_ENCRYPTION_KEY ?? "");\n
+  const user = verifySessionToken(
     request.cookies.get("deplo_session")?.value,
     process.env.DEPLO_SESSION_SECRET ?? "",
   );
