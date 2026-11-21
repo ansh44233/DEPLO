@@ -19,6 +19,7 @@ type DeploymentReadiness = {
   provider: "cloudflare-pages";
   configured: boolean;
   uploadAuthenticationConfigured: boolean;
+  legacySharedProjectConfigured: boolean;
   ready: boolean;
   missing: string[];
 };
@@ -89,7 +90,6 @@ export default function Home() {
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
-  const [projectDeleting, setProjectDeleting] = useState(false);
   const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
   const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
   const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
@@ -210,33 +210,6 @@ export default function Home() {
   useEffect(() => {
     void refreshDeploymentHistory(selected.id, Boolean(signedInUser));
   }, [refreshDeploymentHistory, selected.id, signedInUser]);
-
-  async function deleteSelectedProject() {
-    if (!selected.id || !signedInUser || projectDeleting) return;
-    const confirmed = window.confirm(
-      "Delete the project \"" + selected.name + "\" from DEPLO? This removes its DEPLO project record. It does not delete the Cloudflare-hosted site."
-    );
-    if (!confirmed) return;
-
-    setProjectDeleting(true);
-    setNotice("");
-    try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id), { method: "DELETE" });
-      const data = await response.json() as { deleted?: boolean; error?: string };
-      if (!response.ok || !data.deleted) throw new Error(data.error || "Project deletion failed.");
-      const remaining = projects.filter((project) => project.id !== selected.id);
-      setProjects(remaining);
-      setActiveProject(remaining[0]?.name ?? "");
-      setCloudflareDeployments([]);
-      setLogsDeploymentId(null);
-      setDeploymentLogs([]);
-      setNotice("Project deleted from DEPLO. Its Cloudflare site was not changed.");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Project deletion failed.");
-    } finally {
-      setProjectDeleting(false);
-    }
-  }
 
   async function deploySelectedProject() {
     if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
@@ -598,7 +571,7 @@ export default function Home() {
             <section className="panel selected-panel">
               <div className="panel-heading">
                 <div><div className="section-kicker">SELECTED PROJECT</div><h2>{selected.name}</h2></div>
-                {selected.id && signedInUser && <button className="text-button" onClick={() => void deleteSelectedProject()} disabled={projectDeleting}>{projectDeleting ? "Deleting…" : "Delete project"}</button>}
+                <button className="icon-button subtle" aria-label="Project options"><MoreHorizontal size={18} /></button>
               </div>
               <div className="selected-domain"><Globe2 size={15} /><span>{selected.domain}</span><ExternalLink size={13} /></div>
               <div className="selected-status"><span className={"status-dot " + (selected.status === "Connected" ? "status-dot-idle" : "")} /> {selected.status === "Connected" ? "Repository connected · not deployed" : "Production deployment is healthy"}</div>

@@ -6,6 +6,7 @@ import {
   isValidPagesBranch,
   isValidPagesProjectName,
   readCloudflarePagesConfig,
+  readCloudflarePagesCredentials,
 } from "../../lib/deploy/cloudflare-pages";
 
 test("reads Cloudflare Pages configuration from server environment values", () => {
@@ -51,4 +52,16 @@ test("builds a fixed Wrangler argument list without shell interpolation", () => 
   ]);
   assert.throws(() => buildPagesDeployArgs("/tmp/site", "deplo;bad", "site-demo"), /project name/);
   assert.throws(() => buildPagesDeployArgs("/tmp/site", "deplo-sites", "../main"), /branch name/);
+});
+
+
+test("reads account-level Cloudflare credentials without requiring a legacy shared project", () => {
+  assert.deepEqual(readCloudflarePagesCredentials({
+    CLOUDFLARE_ACCOUNT_ID: " account-123 ",
+    CLOUDFLARE_API_TOKEN: " secret-token ",
+  }), {
+    accountId: "account-123",
+    apiToken: "secret-token",
+  });
+  assert.equal(readCloudflarePagesCredentials({ CLOUDFLARE_ACCOUNT_ID: "account" }), null);
 });

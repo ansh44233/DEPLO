@@ -13,6 +13,7 @@ test("reports a ready deployment provider without exposing credentials", () => {
     provider: "cloudflare-pages",
     configured: true,
     uploadAuthenticationConfigured: true,
+    legacySharedProjectConfigured: true,
     ready: true,
     missing: [],
   });
@@ -28,10 +29,11 @@ test("reports missing provider settings without returning their values", () => {
   });
   assert.deepEqual(result, {
     provider: "cloudflare-pages",
-    configured: false,
+    configured: true,
     uploadAuthenticationConfigured: false,
-    ready: false,
-    missing: ["CLOUDFLARE_PAGES_PROJECT_NAME"],
+    legacySharedProjectConfigured: false,
+    ready: true,
+    missing: [],
   });
   assert.equal(JSON.stringify(result).includes("private-token"), false);
 });
@@ -41,5 +43,6 @@ test("handles an entirely unconfigured server", () => {
   assert.equal(result.ready, false);
   assert.equal(result.configured, false);
   assert.equal(result.uploadAuthenticationConfigured, false);
-  assert.equal(result.missing.length, 3);
+  assert.equal(result.missing.length, 2);
+  assert.equal(result.legacySharedProjectConfigured, false);
 });
