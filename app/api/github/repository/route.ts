@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
 
 type GitHubRepository = {
   full_name: string;
   description: string | null;
   html_url: string;
   default_branch: string;
-  private: boolean;
   stargazers_count: number;
   language: string | null;
 };
@@ -15,26 +15,8 @@ type GitHubBranch = {
   commit: { sha: string };
 };
 
-function parsePublicGitHubUrl(value: string) {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return null;
-  }
-
-  if (parsed.hostname !== "github.com" || parsed.protocol !== "https:") return null;
-  const parts = parsed.pathname.split("/").filter(Boolean);
-  if (parts.length < 2) return null;
-
-  const owner = parts[0];
-  const repository = parts[1].replace(/\.git$/i, "");
-  if (!/^[a-zA-Z0-9-]{1,39}$/.test(owner) || !/^[a-zA-Z0-9_.-]+$/.test(repository)) return null;
-  return { owner, repository };
-}
-
 export async function GET(request: NextRequest) {
-  const input = request.nextUrl.searchParams.get("url")?.trim() ?? "";
+  const input = request.nextUrl.searchParams.get("url") ?? "";
   const parsed = parsePublicGitHubUrl(input);
 
   if (!parsed) {
@@ -51,30 +33,56 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    const base = `https://api.github.com/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repository)}`;
+    const base =
+      "https://api.github.com/repos/" +
+      encodeURIComponent(parsed.owner) +
+      "/" +
+      encodeURIComponent(parsed.repository);
+    const requestOptions = {
+      headers,
+      signal: AbortSignal.timeout(8_000),
+      next: { revalidate: 60 },
+    };
     const [repositoryResponse, branchesResponse] = await Promise.all([
-      fetch(base, { headers, next: { revalidate: 60 } }),
-      fetch(`${base}/branches?per_page=100`, { headers, next: { revalidate: 60 } }),
+      fetch(base, requestOptions),
+      fetch(base + "/branches?per_page=100", requestOptions),
     ]);
 
-    if (repositoryResponse.status === 404) {
+    if (repositoryResponse.status === 404 || branchesResponse.status === 404) {
       return NextResponse.json(
         { error: "Repository not found. Check the URL and make sure the repository is public." },
         { status: 404 },
       );
     }
-    if (repositoryResponse.status === 403 || branchesResponse.status === 403) {
+
+    if (
+      repositoryResponse.status === 403 ||
+      repositoryResponse.status === 429 ||
+      branchesResponse.status === 403 ||
+      branchesResponse.status === 429
+    ) {
       return NextResponse.json(
         { error: "GitHub's public API rate limit was reached. Please try again later." },
         { status: 429 },
       );
     }
+
     if (!repositoryResponse.ok || !branchesResponse.ok) {
-      return NextResponse.json({ error: "GitHub could not return repository details right now." }, { status: 502 });
+      return NextResponse.json(
+        { error: "GitHub could not return repository details right now." },
+        { status: 502 },
+      );
     }
 
     const repository = (await repositoryResponse.json()) as GitHubRepository;
     const branches = (await branchesResponse.json()) as GitHubBranch[];
+
+    if (!Array.isArray(branches) || typeof repository.full_name !== "string") {
+      return NextResponse.json(
+        { error: "GitHub returned an unexpected repository response." },
+        { status: 502 },
+      );
+    }
 
     return NextResponse.json({
       repository: {
@@ -85,9 +93,22 @@ export async function GET(request: NextRequest) {
         stars: repository.stargazers_count,
         language: repository.language,
       },
-      branches: branches.map((branch) => ({ name: branch.name, commit: branch.commit.sha })),
+      branches: branches.map((branch) => ({
+        name: branch.name,
+        commit: branch.commit.sha,
+      })),
     });
-  } catch {
-    return NextResponse.json({ error: "Unable to reach GitHub. Check your connection and try again." }, { status: 502 });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return NextResponse.json(
+        { error: "GitHub took too long to respond. Please try again." },
+        { status: 504 },
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Unable to reach GitHub. Check your connection and try again." },
+      { status: 502 },
+    );
   }
 }
