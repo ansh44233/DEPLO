@@ -23,6 +23,16 @@ type DeploymentReadiness = {
   missing: string[];
 };
 
+type CloudflareDeployment = {
+  id: string;
+  url: string;
+  environment: string;
+  createdAt: string | null;
+  branch: string | null;
+  commitMessage: string | null;
+  status: "success" | "failure" | "building" | "unknown";
+};
+
 type Project = {
   name: string;
   domain: string;
@@ -63,6 +73,9 @@ export default function Home() {
   const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(true);
   const [readinessError, setReadinessError] = useState("");
+  const [cloudflareDeployments, setCloudflareDeployments] = useState<CloudflareDeployment[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -77,7 +90,33 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/deploy/history", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Deployment history is unavailable.");
+        return data as { deployments: CloudflareDeployment[] };
+      })
+      .then((data) => { if (!cancelled) setCloudflareDeployments(data.deployments); })
+      .catch((error) => {
+        if (!cancelled) setHistoryError(error instanceof Error ? error.message : "Deployment history is unavailable.");
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
+  const displayDeployments = cloudflareDeployments.map((deployment) => ({
+    id: deployment.id,
+    project: deployment.environment,
+    message: deployment.commitMessage || deployment.url,
+    branch: deployment.branch || "—",
+    time: deployment.createdAt ? new Date(deployment.createdAt).toLocaleString() : "—",
+    status: deployment.status === "success" ? "Ready" : deployment.status === "failure" ? "Failed" : deployment.status === "building" ? "Building" : "Unknown",
+    duration: "Cloudflare",
+    url: deployment.url,
+  }));
   const filteredProjects = useMemo(
     () => projects.filter((project) => project.name.toLowerCase().includes(search.toLowerCase())),
     [projects, search]
@@ -229,8 +268,8 @@ export default function Home() {
 
           <div className="stats-grid">
             <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail="+1 this week" />
-            <Stat icon={<Cloud size={17} />} label="Sample deployments" value={String(deployments.length).padStart(2, "0")} detail="Illustrative records only" />
-            <Stat icon={<Activity size={17} />} label="Live deployments" value="00" detail="Provider not connected" />
+            <Stat icon={<Cloud size={17} />} label="Deployments" value={String(cloudflareDeployments.length).padStart(2, "0")} detail={historyLoading ? "Loading provider records" : historyError ? "Provider history unavailable" : "Cloudflare Pages records"} />
+            <Stat icon={<Activity size={17} />} label="Live deployments" value={String(cloudflareDeployments.filter((deployment) => deployment.status === "success").length).padStart(2, "0")} detail="Successful provider deployments" />
             <Stat icon={<Gauge size={17} />} label="Build pipeline" value="—" detail="Not configured yet" />
           </div>
 
@@ -277,23 +316,24 @@ export default function Home() {
 
           <section className="panel deployments-panel">
             <div className="panel-heading">
-              <div><h2>Deployment preview</h2><p>Illustrative deployment records — no real builds have run.</p></div>
+              <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
               <button className="text-button" onClick={() => setActiveNav("Deployments")}>Deployment history <ArrowUpRight size={14} /></button>
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
                 <thead><tr><th>PROJECT</th><th>DEPLOYMENT</th><th>BRANCH</th><th>STATUS</th><th>TIME</th><th /></tr></thead>
                 <tbody>
-                  {deployments.map((deployment) => (
+                  {displayDeployments.map((deployment) => (
                     <tr key={deployment.id}>
                       <td><span className="table-project-icon"><Code2 size={14} /></span><strong>{deployment.project}</strong></td>
                       <td><span className="deployment-message">{deployment.message}</span><small>{deployment.id}</small></td>
                       <td><span className="branch-chip"><Github size={12} /> {deployment.branch}</span></td>
-                      <td><span className="health-tag healthy"><i />{deployment.status}</span></td>
-                      <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration} build</small></td>
-                      <td><button className="icon-button table-more" aria-label={`More options for ${deployment.id}`}><MoreHorizontal size={17} /></button></td>
+                      <td><span className={`health-tag ${deployment.status === "Ready" ? "healthy" : deployment.status.toLowerCase()}`}><i />{deployment.status}</span></td>
+                      <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
+                      <td>{ "url" in deployment ? <a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a> : <button className="icon-button table-more" aria-label={`More options for ${deployment.id}`}><MoreHorizontal size={17} /></button>}</td>
                     </tr>
                   ))}
+                  {!historyLoading && !historyError && displayDeployments.length === 0 && <tr><td colSpan={6}><div className="empty-state">No Cloudflare deployments are available yet.</div></td></tr>}
                 </tbody>
               </table>
             </div>
