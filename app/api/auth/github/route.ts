@@ -16,7 +16,7 @@ function getCallbackUrl(): string | null {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const callbackUrl = getCallbackUrl();
   if (!clientId || !process.env.GITHUB_CLIENT_SECRET || !callbackUrl || (process.env.DEPLO_SESSION_SECRET?.length ?? 0) < 32) {
