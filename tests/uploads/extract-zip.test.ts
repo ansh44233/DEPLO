@@ -69,3 +69,16 @@ test("rejects malformed ZIP input", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("rejects symbolic-link entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "deplo-zip-symlink-test-"));
+  try {
+    const archivePath = join(root, "symlink.zip");
+    await writeFile(archivePath, await makeZip([
+      { name: "link", content: Buffer.from("target.txt"), mode: 0o120777 },
+    ]));
+    await assert.rejects(extractZipSafely(archivePath, join(root, "extracted")), /symbolic links or special files/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
