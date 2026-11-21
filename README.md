@@ -6,14 +6,14 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. Public GitHub repository inspection and an authenticated local upload-storage endpoint are implemented. Per-user authentication, object storage, builds, deployment providers, and production infrastructure are not yet configured.
+Early development. Public GitHub repository inspection, GitHub account sign-in, and an authenticated local upload-storage endpoint are implemented. Database-backed project ownership, account-scoped authorization, object storage, builds, and production infrastructure are not yet configured.
 
 ## Current GitHub import preview
 
 The dashboard can inspect **public GitHub repositories** by URL, retrieve repository metadata and available branches, and add a selected branch to the in-browser dashboard preview.
 
 This is an early integration milestone, not a production deployment pipeline:
-- Private repositories and GitHub OAuth are not connected yet.
+- Private repository access is not connected yet. GitHub OAuth sign-in establishes account identity only; it does not yet grant private-repository access.
 - The selected repository is held in client-side preview state and is not saved to an account database.
 - Selecting a repository does not run a build or publish a live URL.
 - GitHub's unauthenticated API rate limits apply.
