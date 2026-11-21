@@ -113,3 +113,32 @@ export async function ensureCloudflarePagesProject(
 
   verifyProjectPayload(await created.json() as CloudflareProjectPayload, config, productionBranch);
 }
+
+
+export async function deleteCloudflarePagesProject(
+  config: CloudflarePagesConfig,
+  fetcher: typeof fetch = fetch,
+): Promise<"deleted" | "already-absent"> {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(config.projectName)) {
+    throw new Error("Invalid Cloudflare Pages project name.");
+  }
+  const response = await fetcher(projectEndpoint(config), {
+    method: "DELETE",
+    headers: {
+      Authorization: "Bearer " + config.apiToken,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(15_000),
+    cache: "no-store",
+  });
+  if (response.status === 404) return "already-absent";
+  if (!response.ok) {
+    throw new Error("Cloudflare Pages project could not be deleted.");
+  }
+  if (response.status === 204) return "deleted";
+  const payload = await response.json() as CloudflareProjectPayload;
+  if (payload.success !== true) {
+    throw new Error("Cloudflare Pages did not confirm project deletion.");
+  }
+  return "deleted";
+}
