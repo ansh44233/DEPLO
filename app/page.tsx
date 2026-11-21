@@ -187,7 +187,12 @@ export default function Home() {
     const authResult = new URLSearchParams(window.location.search).get("auth");
     if (authResult === "success") setNotice("Signed in with GitHub. Your saved projects are loading.");
     if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
-    if (authResult) window.history.replaceState({}, "", window.location.pathname);
+    const appResult = new URLSearchParams(window.location.search).get("github_app");
+    if (appResult === "connected") setNotice("GitHub App installed and linked to your DEPLO account. Private auto-deploy worker integration is the next step.");
+    if (appResult === "error") setNotice("GitHub App installation could not be linked. Check the app setup URL, private key, and database migration.");
+    if (appResult === "cancelled") setNotice("GitHub App installation was cancelled.");
+    if (appResult === "signin_required") setNotice("Sign in with GitHub before installing the DEPLO GitHub App.");
+    if (authResult || appResult) window.history.replaceState({}, "", window.location.pathname);
     return () => { cancelled = true; };
   }, []);
 
