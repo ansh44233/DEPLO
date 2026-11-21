@@ -154,7 +154,6 @@ export function createRunnerServer(config: RunnerConfig) {
     headersTimeout: 15_000,
     requestTimeout: 120_000,
     keepAliveTimeout: 5_000,
-    maxRequestsPerSocket: 100,
     maxHeaderSize: 16 * 1024,
   }, async (req, res) => {
     try {
