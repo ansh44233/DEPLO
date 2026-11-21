@@ -9,11 +9,11 @@ test("accepts safe relative archive paths", () => {
 });
 
 test("rejects traversal, absolute, drive, and backslash paths", () => {
-  for (const path of ["../secret", "assets/../../secret", "/etc/passwd", "C:/secret", "assets\\\\secret"]) assert.notEqual(validateArchiveEntryPath(path), null, path);
+  for (const path of ["../secret", "assets/../../secret", "/etc/passwd", "C:/secret", "assets\\secret"]) assert.notEqual(validateArchiveEntryPath(path), null, path);
 });
 
 test("rejects malformed and control-character paths", () => {
-  for (const path of ["", "a//b", "./index.html", "a/../b", "bad\\0name", "bad\\nname"]) assert.notEqual(validateArchiveEntryPath(path), null);
+  for (const path of ["", "a//b", "./index.html", "a/../b", "bad\0name", "bad\nname"]) assert.notEqual(validateArchiveEntryPath(path), null);
 });
 
 test("rejects empty archives and excessive entry counts", () => {
