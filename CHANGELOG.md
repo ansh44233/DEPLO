@@ -5,6 +5,17 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Asynchronous isolated build-runner transport with stable idempotency keys, bounded status polling, and strict terminal artifact metadata validation.
+- Durable runner job ID persistence, atomic polling claims, retry scheduling, and a protected background queue processor endpoint.
+- Runner success is recorded as artifact-ready only; deployment success is withheld until an independent artifact validation and publishing pipeline exists.
+- Supabase migration 0008 for runner job tracking and polling state.
+- Tests for atomic queue RPC integration, idempotent runner submission, poll scheduling, and artifact metadata persistence.
+
+### Changed
+- Framework build jobs now dispatch through the asynchronous runner protocol instead of requiring a long-lived API request.
+- Runner transport documentation now specifies the worker scheduler contract and the artifact-ready boundary.
+
+### Added
 - Framework build-plan detection for Vite, React, Create React App, and Next.js using package metadata and lockfiles only; no project config modules, dependency installs, or user scripts are executed.
 - Tests for framework classification, package-manager selection, static export detection, malformed manifests, and safe no-build behavior.
 

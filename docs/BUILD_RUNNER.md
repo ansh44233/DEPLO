@@ -6,28 +6,22 @@ DEPLO's web application must never execute repository scripts, package lifecycle
 
 `lib/deploy/build-runner-contract.ts` defines the provider-neutral request shape, accepted framework/output combinations, and conservative resource defaults. It does not start a process, download source, install dependencies, execute a build, or publish artifacts.
 
-The default request limits are:
+Default request limits are 10 minutes, 2 GiB memory, 2 CPU cores, 4 GiB ephemeral disk, 5,000 output files, 100 MiB total output, and network denied by default. A runner must enforce these limits outside DEPLO; request metadata is not enforcement.
 
-- 10-minute wall-clock timeout
-- 2 GiB memory and 2 CPU cores
-- 4 GiB ephemeral disk
-- 5,000 output files and 100 MiB total output
-- Network denied by default
+## Authenticated asynchronous protocol
 
-A future runner implementation must enforce these limits outside the DEPLO web process. Merely including limits in a request is not enforcement.
+1. DEPLO submits `POST /v1/builds` with a stable `Idempotency-Key` equal to the durable DEPLO build-job UUID.
+2. The runner deduplicates repeated submissions by that key and responds with HTTP 202 plus an opaque `runnerJobId`.
+3. DEPLO persists the runner ID and polls `GET /v1/builds/{runnerJobId}` from a scheduled background worker.
+4. The runner reports `queued`, `running`, `succeeded`, or `failed`; terminal results and artifact metadata are strictly validated.
 
-## Authenticated asynchronous transport
+The transport uses a server-only bearer token, refuses redirects, omits cookies, bounds request timeouts and response sizes, and never forwards Cloudflare, Supabase, GitHub App, or session credentials.
 
-`lib/deploy/async-build-runner.ts` defines the asynchronous runner protocol:
+## Queue worker integration
 
-1. DEPLO submits a build request to `POST /v1/builds`.
-2. The runner responds with HTTP 202 and an opaque `runnerJobId`.
-3. DEPLO polls `GET /v1/builds/{runnerJobId}` from a background worker.
-4. The runner reports `queued`, `running`, `succeeded`, or `failed`; terminal results are strictly validated.
+`POST /api/internal/build-jobs/process` is protected by `DEPLO_BUILD_WORKER_SECRET`. A scheduler should call it repeatedly. Each invocation claims at most one poll or one pending build using atomic Supabase RPCs. Runner IDs are persisted in migration `0008_async_build_runner_jobs.sql`; poll claims prevent concurrent workers from updating the same job. Transient failures use the existing retry/backoff policy.
 
-The transport uses a server-only bearer token, refuses redirects, omits cookies, uses bounded request timeouts and response sizes, and validates identifiers and artifact metadata. It never forwards Cloudflare, Supabase, GitHub App, or session credentials.
-
-This is a protocol client only. The durable queue is not yet wired to it, and no runner implementation, artifact download, or deployment publishing is included. Do not report a build as successful until DEPLO independently fetches and validates the artifact through a separate authenticated channel.
+A runner result of `succeeded` is recorded as **artifact-ready**, not as a successful DEPLO deployment. The build job remains processing until a separate artifact-fetch, archive-validation, and Cloudflare publishing pipeline is implemented. No artifact is downloaded or published by this worker.
 
 ## Required runner isolation
 
@@ -45,9 +39,10 @@ Before enabling a real runner, its implementation must provide:
 
 - `DEPLO_BUILD_RUNNER_URL`: HTTPS base URL for the isolated runner (localhost is permitted for local development only).
 - `DEPLO_BUILD_RUNNER_TOKEN`: random token of at least 32 characters.
+- `DEPLO_BUILD_WORKER_SECRET`: random scheduler/worker bearer secret of at least 32 characters.
 
-These settings only configure transport to a runner. There is no runner implementation or queue dispatch yet. Do not add either variable to a `NEXT_PUBLIC_` setting.
+All three are server-only. The queue worker returns 503 until the runner is configured. Migration `0008_async_build_runner_jobs.sql` must be applied to Supabase before the worker is enabled.
 
 ## Current behavior
 
-Framework detection and the durable build queue remain metadata and queue foundations. Jobs do not execute user code. Static HTML/ZIP/GitHub deployment paths continue to publish already-static files only. Do not mark a build successful or deploy output until a real isolated runner has produced and DEPLO has independently validated an artifact.
+Framework detection and queue processing remain metadata/protocol foundations until a real isolated runner is deployed. No arbitrary user code is executed by the DEPLO web host. Static HTML/ZIP/GitHub deployment paths continue to publish already-static files only. A remote successful build is not a successful DEPLO deployment until DEPLO independently fetches, validates, and publishes its artifact.
