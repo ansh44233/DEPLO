@@ -5,6 +5,9 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Deterministic per-account Cloudflare Pages project provisioning with an isolated production branch for every account-owned site.
+- Automatic creation and verification of each project's Cloudflare Pages target before static GitHub or ZIP/HTML publishing.
+- Deployment history, logs, and rollback requests now resolve the isolated Pages project from the verified account owner and project slug.
 - Owner-scoped Cloudflare Pages deployment log API with branch-membership checks, bounded/sanitized log output, and no-store responses.
 - Dashboard deployment log viewer for account-owned projects.
 - Owner-scoped Cloudflare production rollback endpoint with strict successful-production and project-branch checks.
