@@ -105,7 +105,8 @@ export async function getIsolatedBuildStatus(runnerJobId: string, env: Record<st
   if (payload.status === "succeeded" || payload.status === "failed") {
     const result = parseTerminalResult(payload.result);
     if (result.status !== payload.status) throw new AsyncBuildRunnerError("Runner status and result do not match.", "invalid_response");
-    return { status: payload.status, result } as AsyncRunnerStatus;
+    if (result.status === "succeeded") return { status: "succeeded", result };
+    return { status: "failed", result };
   }
   throw new AsyncBuildRunnerError("The runner returned an unsupported job status.", "invalid_response");
 }
