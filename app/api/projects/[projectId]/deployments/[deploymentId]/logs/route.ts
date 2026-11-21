@@ -42,7 +42,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const config = readCloudflarePagesCredentials(process.env);
   if (!config) return errorResponse("Cloudflare Pages is not configured.", 503);
 
-  let pagesTarget;
+  let pagesTarget: ReturnType<typeof getAccountPagesTarget>;
   try {
     pagesTarget = getAccountPagesTarget(config, user.id, project.slug);
   } catch {
