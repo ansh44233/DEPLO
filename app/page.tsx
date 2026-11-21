@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import {
   Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
@@ -13,6 +13,14 @@ import {
 type RepositoryInfo = {
   fullName: string; description: string | null; url: string; defaultBranch: string;
   stars: number; language: string | null; branches: { name: string; commit: string }[];
+};
+
+type DeploymentReadiness = {
+  provider: "cloudflare-pages";
+  configured: boolean;
+  uploadAuthenticationConfigured: boolean;
+  ready: boolean;
+  missing: string[];
 };
 
 type Project = {
@@ -52,6 +60,22 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [fileName, setFileName] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(true);
+  const [readinessError, setReadinessError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/deploy/status", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load provider status.");
+        return response.json() as Promise<DeploymentReadiness>;
+      })
+      .then((data) => { if (!cancelled) setReadiness(data); })
+      .catch(() => { if (!cancelled) setReadinessError("Provider status is unavailable."); })
+      .finally(() => { if (!cancelled) setReadinessLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const selected = projects.find((project) => project.name === activeProject) ?? projects[0];
   const filteredProjects = useMemo(
@@ -193,6 +217,15 @@ export default function Home() {
           </div>
 
           {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X size={15} /></button></div>}
+
+          <section className={`provider-readiness ${readiness?.ready ? "is-ready" : "is-pending"}`} aria-live="polite">
+            <div className="provider-readiness-icon"><ShieldCheck size={17} /></div>
+            <div className="provider-readiness-copy">
+              <strong>{readinessLoading ? "Checking deployment provider…" : readinessError ? "Provider status unavailable" : readiness?.ready ? "Cloudflare Pages is configured" : "Cloudflare Pages setup required"}</strong>
+              <span>{readinessLoading ? "Reading server configuration." : readinessError ? readinessError : readiness?.ready ? "Required settings are present. Provider credentials have not been verified." : `Missing or invalid settings: ${readiness?.missing.join(", ") || "upload authentication token"}.`}</span>
+            </div>
+            <span className="provider-readiness-state">{readinessLoading ? "CHECKING" : readinessError ? "UNKNOWN" : readiness?.ready ? "CONFIGURED" : "NOT READY"}</span>
+          </section>
 
           <div className="stats-grid">
             <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail="+1 this week" />

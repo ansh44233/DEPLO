@@ -5,6 +5,7 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Dashboard provider-readiness indicator connected to the no-store deployment status endpoint.
 - Public GitHub repository deployment endpoint: downloads a selected branch, safely extracts its archive, validates static assets, and publishes through Cloudflare Pages.
 - Input validation tests for Git branch names and deployment slugs.
 - Cloudflare Pages static deployment adapter using a pinned Wrangler CLI and server-side credentials.
@@ -21,6 +22,7 @@ All notable changes to DEPLO are documented here.
 - File size limits of 25 MB for ZIP archives and 2 MB for HTML documents.
 - ZIP signature checks and basic complete-HTML-document checks.
 - Unit tests covering upload file limits, extensions, and ZIP signatures.
+- A no-store deployment readiness endpoint that reports missing Cloudflare configuration without exposing secret values.
 
 ### Changed
 - GitHub URL parsing and inspection now use strict validation, request timeouts, and clearer error handling.
@@ -28,5 +30,6 @@ All notable changes to DEPLO are documented here.
 - Dashboard labels distinguish preview data from real deployments and usage.
 
 ### Notes
-- Upload preflight is not file transfer or deployment. Object storage, per-user authentication, build execution and hosting-provider integration remain future work.
-- Public GitHub repository selection remains a preview-only integration; OAuth, private repositories, and deployment execution are not connected yet.
+- Static deployment endpoints require Cloudflare Pages credentials and a configured Pages project on the server; readiness checks verify presence and format, not provider-side validity.
+- The GitHub integration currently supports public repositories with a root `index.html`; private repository OAuth, framework build execution, per-user project ownership, and automatic push redeploys are not connected.
+- Uploads use local filesystem storage and a shared server-side bearer token; production multi-user hosting still needs durable object storage, account-level authorization, quotas, cleanup, and isolated build infrastructure.
