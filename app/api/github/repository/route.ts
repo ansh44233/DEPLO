@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
+import { decryptGitHubToken } from "@/lib/auth/github-token";
 
 type GitHubRepository = {
   full_name: string;
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const headers = {
+  const accessToken = decryptGitHubToken(request.cookies.get("deplo_github_token")?.value, process.env.GITHUB_TOKEN_ENCRYPTION_KEY ?? "");\n  const headers = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "DEPLO",
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     if (repositoryResponse.status === 404 || branchesResponse.status === 404) {
       return NextResponse.json(
-        { error: "Repository not found. Check the URL and make sure the repository is public." },
+        { error: "Repository not found or your GitHub account does not have access. Sign in with an account that can view this repository." },
         { status: 404 },
       );
     }
