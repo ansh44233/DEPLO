@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
+import { decryptGitHubToken } from "@/lib/auth/github-token";
 
 type GitHubRepository = {
   full_name: string;
@@ -21,15 +22,20 @@ export async function GET(request: NextRequest) {
 
   if (!parsed) {
     return NextResponse.json(
-      { error: "Enter a valid public GitHub repository URL, such as https://github.com/vercel/next.js." },
+      { error: "Enter a valid GitHub repository URL, such as https://github.com/vercel/next.js." },
       { status: 400 },
     );
   }
 
+  const accessToken = decryptGitHubToken(
+    request.cookies.get("deplo_github_token")?.value,
+    process.env.GITHUB_TOKEN_ENCRYPTION_KEY ?? "",
+  );
   const headers = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "DEPLO",
+    ...(accessToken ? { Authorization: "Bearer " + accessToken } : {}),
   };
 
   try {
@@ -41,7 +47,7 @@ export async function GET(request: NextRequest) {
     const requestOptions = {
       headers,
       signal: AbortSignal.timeout(8_000),
-      next: { revalidate: 60 },
+      cache: "no-store" as const,
     };
     const [repositoryResponse, branchesResponse] = await Promise.all([
       fetch(base, requestOptions),
@@ -50,7 +56,7 @@ export async function GET(request: NextRequest) {
 
     if (repositoryResponse.status === 404 || branchesResponse.status === 404) {
       return NextResponse.json(
-        { error: "Repository not found. Check the URL and make sure the repository is public." },
+        { error: "Repository not found or your GitHub account does not have access. Sign in with an account that can view this repository." },
         { status: 404 },
       );
     }
@@ -62,7 +68,7 @@ export async function GET(request: NextRequest) {
       branchesResponse.status === 429
     ) {
       return NextResponse.json(
-        { error: "GitHub's public API rate limit was reached. Please try again later." },
+        { error: "GitHub's API rate limit was reached. Please try again later." },
         { status: 429 },
       );
     }

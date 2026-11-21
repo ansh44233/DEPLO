@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, safeEqual } from "@/lib/auth/session";
+import { encryptGitHubToken } from "@/lib/auth/github-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ function callbackUrl(): string | null {
   }
 }
 
-function finish(request: NextRequest, result: "error" | "success", sessionToken?: string) {
+function finish(request: NextRequest, result: "error" | "success", sessionToken?: string, encryptedGitHubToken?: string) {
   let destination: URL;
   try {
     destination = new URL("/", process.env.DEPLO_BASE_URL || request.nextUrl.origin);
@@ -34,6 +35,13 @@ function finish(request: NextRequest, result: "error" | "success", sessionToken?
     sameSite: "lax",
     path: "/api/auth/github/callback",
     maxAge: 0,
+  });
+  response.cookies.set("deplo_github_token", encryptedGitHubToken ?? "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: encryptedGitHubToken ? 60 * 60 * 24 * 7 : 0,
   });
   if (sessionToken) {
     response.cookies.set("deplo_session", sessionToken, {
@@ -55,11 +63,12 @@ export async function GET(request: NextRequest) {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
   const sessionSecret = process.env.DEPLO_SESSION_SECRET;
+  const tokenEncryptionKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
   const redirectUri = callbackUrl();
 
   if (
     !code || !state || !savedState || !safeEqual(state, savedState) ||
-    !clientId || !clientSecret || !sessionSecret || sessionSecret.length < 32 || !redirectUri
+    !clientId || !clientSecret || !sessionSecret || sessionSecret.length < 32 || !tokenEncryptionKey || tokenEncryptionKey.length < 32 || !redirectUri
   ) return finish(request, "error");
 
   try {
@@ -104,8 +113,8 @@ export async function GET(request: NextRequest) {
       name: typeof profile.name === "string" ? profile.name.slice(0, 100) : null,
       avatarUrl,
     }, sessionSecret);
-    // The OAuth access token is intentionally not persisted in the browser session.
-    return finish(request, "success", token);
+    const encryptedToken = encryptGitHubToken(tokenData.access_token, tokenEncryptionKey);
+    return finish(request, "success", token, encryptedToken);
   } catch {
     return finish(request, "error");
   }

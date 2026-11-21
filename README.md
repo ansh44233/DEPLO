@@ -13,10 +13,10 @@ Early development. Public GitHub repository inspection, GitHub account sign-in, 
 The dashboard can inspect **public GitHub repositories** by URL, retrieve repository metadata and available branches, and add a selected branch to the in-browser dashboard preview.
 
 This is an early integration milestone, not a production deployment pipeline:
-- Private repository access is not connected yet. GitHub OAuth sign-in establishes account identity only; it does not yet grant private-repository access.
+- Private repository inspection and static deployment are supported after GitHub sign-in, provided the user approves the requested `repo` OAuth scope.
 - When signed in and Supabase is configured, the selected repository is saved as account-owned project metadata. Without sign-in or database configuration, it remains a temporary browser preview.
 - Selecting a repository does not run a build or publish a live URL.
-- GitHub's unauthenticated API rate limits apply.
+- Authenticated GitHub API requests are used when a signed-in token is available; otherwise public API limits apply.
 
 The inspection endpoint is `GET /api/github/repository?url=<public-repository-url>`.
 
@@ -74,7 +74,21 @@ curl -X POST "http://localhost:3000/api/github/deploy" \
 
 The endpoint downloads the GitHub ZIP archive from GitHub's fixed API host, enforces a 25 MiB download limit, applies the same safe ZIP extraction policy as uploads, requires a root `index.html`, checks static asset limits and blocked secret/config paths, then deploys through the configured Cloudflare Pages project. It returns the deployment URL.
 
-**Current scope:** public repositories and static HTML/CSS/JS only. Private repositories, framework build commands, per-user project ownership, and automatic redeployment on Git pushes are not yet supported. DEPLO does not execute repository scripts.
+**Current scope:** public and authenticated private repositories, with static HTML/CSS/JS only. Framework build commands and automatic redeployment on Git pushes are not yet supported. Account-owned deployments require a valid GitHub session and configured Supabase/Cloudflare credentials. DEPLO does not execute repository scripts.
+
+## Private GitHub repository access
+
+GitHub sign-in requests the `read:user repo` OAuth scopes. After consent:
+
+- DEPLO encrypts the GitHub access token using AES-256-GCM and stores only the encrypted value in a Secure/HttpOnly/SameSite cookie. The raw token is never returned to browser JavaScript or saved in the projects database.
+- Repository metadata and branch inspection use the signed-in token, allowing private repositories visible to that GitHub account to be imported.
+- Account-owned GitHub deployment uses the same server-decrypted token to download the saved repository branch archive.
+- Signing out clears both the DEPLO session and encrypted GitHub-token cookies. Both cookies expire after seven days; users must sign in again after expiry.
+- Configure `GITHUB_TOKEN_ENCRYPTION_KEY` as a separate random server-only secret of at least 32 characters. Do not use a `NEXT_PUBLIC_` variable.
+
+**OAuth permission note:** GitHub's classic `repo` scope is broad and includes write access to private repositories. DEPLO currently uses it only for repository reads, but the granted token has broader permissions than the app needs. For a production launch, replace this with a GitHub App installation flow using read-only Contents and Metadata permissions. Users can revoke the OAuth app's access from GitHub Settings at any time.
+
+This milestone still deploys static sites with a root `index.html` only. It does not execute package scripts or framework builds.
 
 ## Account-owned ZIP and HTML uploads
 

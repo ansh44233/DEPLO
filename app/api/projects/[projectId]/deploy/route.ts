@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/auth/session";
+import { decryptGitHubToken } from "@/lib/auth/github-token";
 import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
 import { isValidGitHubBranch } from "@/lib/github/deploy-validation";
@@ -23,14 +24,14 @@ function jsonError(message: string, status: number) {
   });
 }
 
-async function downloadArchive(url: string, destination: string): Promise<number> {
+async function downloadArchive(url: string, destination: string, accessToken: string | null): Promise<number> {
   const response = await fetch(url, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "DEPLO" },
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "DEPLO", ...(accessToken ? { Authorization: "Bearer " + accessToken } : {}) },
     signal: AbortSignal.timeout(30_000),
     redirect: "follow",
     cache: "no-store",
   });
-  if (response.status === 404) throw new Error("Repository or branch not found, or the repository is private.");
+  if (response.status === 404) throw new Error("Repository or branch not found, or your GitHub account cannot access it.");
   if (!response.ok || !response.body) throw new Error("GitHub could not provide the repository archive.");
 
   const declaredLength = Number(response.headers.get("content-length"));
@@ -63,6 +64,9 @@ async function downloadArchive(url: string, destination: string): Promise<number
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const accessToken = decryptGitHubToken(request.cookies.get("deplo_github_token")?.value, process.env.GITHUB_TOKEN_ENCRYPTION_KEY ?? "");
+
+
   const user = verifySessionToken(
     request.cookies.get("deplo_session")?.value,
     process.env.DEPLO_SESSION_SECRET ?? "",
@@ -105,7 +109,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       encodeURIComponent(repository.owner) + "/" +
       encodeURIComponent(repository.repository) +
       "/zipball/" + project.branch.split("/").map(encodeURIComponent).join("/");
-    const archiveBytes = await downloadArchive(archiveUrl, archivePath);
+    const archiveBytes = await downloadArchive(archiveUrl, archivePath, accessToken);
     await extractZipSafely(archivePath, extractedRoot);
 
     const roots = await readdir(extractedRoot, { withFileTypes: true });

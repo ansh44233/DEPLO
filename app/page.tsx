@@ -558,7 +558,7 @@ export default function Home() {
             <button className="source-option" onClick={() => setModal("upload")}><span className="source-icon"><FileArchive size={20} /></span><span><strong>Upload a ZIP file</strong><small>Upload your project as a .zip archive.</small></span><ArrowUpRight size={16} /></button>
             <button className="source-option" onClick={() => setModal("html")}><span className="source-icon"><FileCode2 size={20} /></span><span><strong>Deploy a static HTML file</strong><small>Start with an index.html file.</small></span><ArrowUpRight size={16} /></button>
           </div> : modal === "repo" ? <div className="repo-connect">
-            <label className="repo-label" htmlFor="repo-url">Public GitHub repository URL</label>
+            <label className="repo-label" htmlFor="repo-url">GitHub repository URL (public or private)</label>
             <div className="repo-input-row"><input id="repo-url" value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repository" /><button className="primary-button" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Checking…" : "Find repository"}</button></div>
             <p className="repo-help">Public repositories are supported in this first integration step. Private repository OAuth is not connected yet.</p>
             {repoError && <div className="repo-error" role="alert">{repoError}</div>}
