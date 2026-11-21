@@ -5,6 +5,9 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Private GitHub repository inspection and account-owned static deployment using the signed-in GitHub OAuth token.
+- AES-256-GCM encryption helper for the GitHub token, held only in a Secure/HttpOnly/SameSite cookie and cleared on sign-out.
+- Tests covering token encryption, nonce uniqueness, tamper detection, and invalid-key handling.
 - Account-owned ZIP and standalone HTML upload deployment endpoint with signed-session ownership checks, safe archive extraction, static asset validation, Cloudflare publishing, and deployment URL persistence.
 - Dashboard ZIP/HTML upload flow that creates or reuses an account project and publishes it after local preflight checks.
 - Account-scoped GitHub project deployment endpoint that verifies project ownership from the signed-in GitHub session before publishing.
@@ -45,5 +48,5 @@ All notable changes to DEPLO are documented here.
 
 ### Notes
 - Static deployment endpoints require Cloudflare Pages credentials and a configured Pages project on the server; readiness checks verify presence and format, not provider-side validity.
-- Account-owned GitHub, ZIP, and HTML deployment routes publish static sites with a root `index.html`; they do not execute framework build scripts. They require a valid GitHub session and configured Supabase/Cloudflare credentials. Private repositories and automatic push redeploys remain unsupported.
+- Account-owned GitHub, ZIP, and HTML deployment routes publish static sites with a root `index.html`; they do not execute framework build scripts. They require a valid GitHub session and configured Supabase/Cloudflare credentials. Automatic push redeploys remain unsupported. GitHub's classic `repo` OAuth scope is broad; replace it with a read-only GitHub App installation before production launch.
 - Uploads use local filesystem storage and a shared server-side bearer token; production multi-user hosting still needs durable object storage, account-level authorization, quotas, cleanup, and isolated build infrastructure.
