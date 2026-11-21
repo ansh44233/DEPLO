@@ -3,6 +3,7 @@ import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projects";
 import { readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
 import { listCloudflarePagesDeployments } from "@/lib/deploy/cloudflare-history";
+import { getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,9 +39,16 @@ export async function GET(request: NextRequest) {
   const config = readCloudflarePagesConfig(process.env);
   if (!config) return errorResponse("Cloudflare Pages is not configured.", 503);
 
+  let pagesTarget;
   try {
-    const allDeployments = await listCloudflarePagesDeployments(config);
-    const deployments = allDeployments.filter((deployment) => deployment.branch === "site-" + project.slug);
+    pagesTarget = getAccountPagesTarget(config, user.id, project.slug);
+  } catch {
+    return errorResponse("The account project has invalid Cloudflare deployment settings.", 422);
+  }
+
+  try {
+    const allDeployments = await listCloudflarePagesDeployments(pagesTarget.config);
+    const deployments = allDeployments.filter((deployment) => deployment.branch === pagesTarget.productionBranch);
     return NextResponse.json({ deployments }, {
       headers: {
         "Cache-Control": "no-store",
