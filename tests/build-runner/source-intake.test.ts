@@ -59,6 +59,7 @@ test("source intake is idempotent and rejects conflicting retries", async t => {
   assert.equal(conflict.status, 409);
   const files = await readdir(dir);
   assert.equal(files.filter(name => name.startsWith("idem-")).length, 1);
+  assert.equal(files.filter(name => name.endsWith(".zip")).length, 1, "conflicting retry must not leave an orphan archive");
 });
 
 test("source intake rejects malformed metadata and non-ZIP payloads", async t => {
