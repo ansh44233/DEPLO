@@ -29,6 +29,10 @@ The browser now checks selected ZIP and standalone HTML files before proceeding:
 
 These are client-side preflight checks only. Files are not uploaded, stored, extracted, built, or deployed yet. ZIP contents still require server-side archive inspection and safe extraction before production use.
 
+## Upload archive security
+
+The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork only; ZIP parsing, extraction, storage, and deployment are not implemented yet.
+
 ## Planned capabilities
 
 - GitHub repository import
