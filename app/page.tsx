@@ -6,7 +6,7 @@ import {
   Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
   ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
   FileArchive, FileCode2, FolderGit2, Gauge, Github, Globe2, HardDrive,
-  LayoutDashboard, LifeBuoy, Plus, Search, Settings2,
+  LayoutDashboard, LifeBuoy, MoreHorizontal, Plus, Search, Settings2,
   RefreshCw, RotateCcw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
 } from "lucide-react";
 
