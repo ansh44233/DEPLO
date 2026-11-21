@@ -6,6 +6,7 @@ All notable changes to DEPLO are documented here.
 
 ### Added
 - Supabase Postgres project metadata storage with account-scoped list/create API routes and owner IDs derived only from verified GitHub sessions.
+- Dashboard project list loads saved account projects and persists imported public GitHub repository metadata when signed in.
 - Initial SQL migration with per-account slug uniqueness and row-level security enabled.
 - Tests for owner filtering, server-only service-role headers, missing configuration, and duplicate slugs.
 - GitHub OAuth sign-in with short-lived state validation and signed HttpOnly sessions.
