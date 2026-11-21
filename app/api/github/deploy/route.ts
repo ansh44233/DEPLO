@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
@@ -81,7 +80,7 @@ export async function POST(request: NextRequest) {
       body.branch.includes("..") || body.branch.endsWith("/") || body.branch.includes("//")) {
     return jsonError("Enter a valid Git branch name.", 400);
   }
-  if (typeof body.projectSlug !== "string' || !/^[a-z0-9][a-z0-9-]{0,57}$/.test(body.projectSlug)) {
+  if (typeof body.projectSlug !== "string" || !/^[a-z0-9][a-z0-9-]{0,57}$/.test(body.projectSlug)) {
     return jsonError("Project slug must use lowercase letters, numbers, and hyphens.", 400);
   }
 
@@ -96,13 +95,13 @@ export async function POST(request: NextRequest) {
     const archiveBytes = await downloadArchive(archiveUrl, archivePath);
     await extractZipSafely(archivePath, extractedRoot);
 
-    const roots = await (await import("node:fs/promises")).readdir(extractedRoot, { withFileTypes: true });
+    const roots = await readdir(extractedRoot, { withFileTypes: true });
     const projectRoot = roots.length === 1 && roots[0].isDirectory()
       ? join(extractedRoot, roots[0].name)
       : extractedRoot;
     const indexPath = join(projectRoot, "index.html");
     try {
-      const indexStat = await (await import("node:fs/promises")).stat(indexPath);
+      const indexStat = await stat(indexPath);
       if (!indexStat.isFile()) return jsonError("This repository must contain a root index.html file.", 422);
     } catch {
       return jsonError("This repository must contain a root index.html file. DEPLO currently publishes static sites only.", 422);
