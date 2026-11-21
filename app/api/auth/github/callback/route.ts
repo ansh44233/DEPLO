@@ -62,7 +62,8 @@ export async function GET(request: NextRequest) {
   const savedState = request.cookies.get("deplo_oauth_state")?.value ?? "";
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  const sessionSecret = process.env.DEPLO_SESSION_SECRET;\n  const tokenEncryptionKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
+  const sessionSecret = process.env.DEPLO_SESSION_SECRET;
+  const tokenEncryptionKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
   const redirectUri = callbackUrl();
 
   if (
@@ -112,8 +113,8 @@ export async function GET(request: NextRequest) {
       name: typeof profile.name === "string" ? profile.name.slice(0, 100) : null,
       avatarUrl,
     }, sessionSecret);
-    // The OAuth access token is intentionally not persisted in the browser session.
-    return finish(request, "success", token);
+    const encryptedToken = encryptGitHubToken(tokenData.access_token, tokenEncryptionKey);
+    return finish(request, "success", token, encryptedToken);
   } catch {
     return finish(request, "error");
   }
