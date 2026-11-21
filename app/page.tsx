@@ -7,7 +7,7 @@ import {
   ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
   FileArchive, FileCode2, FolderGit2, Gauge, Github, Globe2, HardDrive,
   LayoutDashboard, LifeBuoy, MoreHorizontal, Plus, Search, Settings2,
-  RefreshCw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
+  RefreshCw, RotateCcw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
 } from "lucide-react";
 
 type RepositoryInfo = {
@@ -42,6 +42,7 @@ type AccountProject = {
 
 type Project = {
   id?: string;
+  slug?: string;
   sourceType?: AccountProject["source_type"];
   name: string;
   domain: string;
@@ -86,6 +87,7 @@ export default function Home() {
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
+  const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +140,7 @@ export default function Home() {
         if (cancelled) return;
         const owned = data.projects.map((project): Project => ({
           id: project.id,
+          slug: project.slug,
           sourceType: project.source_type,
           name: project.name,
           domain: project.deployment_url || "Not deployed yet",
@@ -221,6 +224,35 @@ export default function Home() {
     }
   }
 
+
+  async function rollbackSelectedDeployment(deploymentId: string) {
+    if (!selected.id || !signedInUser || rollbackDeploymentId) return;
+    const confirmed = window.confirm("Roll back " + selected.name + " to this previous successful production deployment? This changes the live production version.");
+    if (!confirmed) return;
+
+    setRollbackDeploymentId(deploymentId);
+    setNotice("");
+    try {
+      const response = await fetch(
+        "/api/projects/" + encodeURIComponent(selected.id) + "/deployments/" + encodeURIComponent(deploymentId) + "/rollback",
+        { method: "POST" },
+      );
+      const data = await response.json() as { url?: string; error?: string; warning?: string };
+      if (!response.ok) throw new Error(data.error || "Deployment rollback failed.");
+      if (data.url) {
+        setProjects((current) => current.map((project) => project.id === selected.id
+          ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "Just now" }
+          : project));
+      }
+      setNotice(data.warning || "Production rolled back successfully" + (data.url ? ": " + data.url : "."));
+      await refreshDeploymentHistory(selected.id, true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Deployment rollback failed.");
+    } finally {
+      setRollbackDeploymentId(null);
+    }
+  }
+
   const displayDeployments = cloudflareDeployments.map((deployment) => ({
     id: deployment.id,
     project: deployment.environment,
@@ -230,6 +262,7 @@ export default function Home() {
     status: deployment.status === "success" ? "Ready" : deployment.status === "failure" ? "Failed" : deployment.status === "building" ? "Building" : "Unknown",
     duration: "Cloudflare",
     url: deployment.url,
+    canRollback: deployment.environment === "production" && deployment.status === "success" && deployment.branch === (selected.slug ? "site-" + selected.slug : ""),
   }));
   const filteredProjects = useMemo(
     () => projects.filter((project) => project.name.toLowerCase().includes(search.toLowerCase())),
@@ -528,7 +561,7 @@ export default function Home() {
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
-                <thead><tr><th>PROJECT</th><th>DEPLOYMENT</th><th>BRANCH</th><th>STATUS</th><th>TIME</th><th /></tr></thead>
+                <thead><tr><th>PROJECT</th><th>DEPLOYMENT</th><th>BRANCH</th><th>STATUS</th><th>TIME</th><th>ACTIONS</th></tr></thead>
                 <tbody>
                   {displayDeployments.map((deployment) => (
                     <tr key={deployment.id}>
@@ -537,7 +570,14 @@ export default function Home() {
                       <td><span className="branch-chip"><Github size={12} /> {deployment.branch}</span></td>
                       <td><span className={`health-tag ${deployment.status === "Ready" ? "healthy" : deployment.status.toLowerCase()}`}><i />{deployment.status}</span></td>
                       <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
-                      <td><a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a></td>
+                      <td>
+                        <div className="table-actions">
+                          {deployment.canRollback && <button className="icon-button table-more" onClick={() => void rollbackSelectedDeployment(deployment.id)} disabled={rollbackDeploymentId !== null} title="Roll back production to this deployment" aria-label={`Roll back to ${deployment.id}`}>
+                            <RotateCcw size={15} className={rollbackDeploymentId === deployment.id ? "spin" : ""} />
+                          </button>}
+                          <a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {!historyLoading && !historyError && displayDeployments.length === 0 && <tr><td colSpan={6}><div className="empty-state">No Cloudflare deployments are available yet.</div></td></tr>}
@@ -560,7 +600,7 @@ export default function Home() {
           </div> : modal === "repo" ? <div className="repo-connect">
             <label className="repo-label" htmlFor="repo-url">GitHub repository URL (public or private)</label>
             <div className="repo-input-row"><input id="repo-url" value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repository" /><button className="primary-button" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Checking…" : "Find repository"}</button></div>
-            <p className="repo-help">Public repositories are supported in this first integration step. Private repository OAuth is not connected yet.</p>
+            <p className="repo-help">DEPLO can inspect public repositories and private repositories your signed-in GitHub account can access.</p>
             {repoError && <div className="repo-error" role="alert">{repoError}</div>}
             {repoInfo && <div className="repo-result">
               <div className="repo-result-top"><span className="source-icon github-source"><Github size={19} /></span><div><strong>{repoInfo.fullName}</strong><small>{repoInfo.description || "No repository description"}</small></div></div>
