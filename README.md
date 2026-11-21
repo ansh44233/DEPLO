@@ -259,3 +259,15 @@ DEPLO includes an account-bound GitHub App installation flow and server-side ins
 ## Project settings
 
 Signed-in project owners can rename a saved project through `PATCH /api/projects/{projectId}`. The endpoint verifies the signed GitHub session and scopes the database update by both project ID and owner ID. Names are limited to 60 characters. Renaming changes the dashboard display name only; the project slug, isolated Cloudflare Pages project, deployment URL, GitHub repository, and production branch remain unchanged.
+
+
+## Framework build detection (foundation)
+
+DEPLO can inspect an extracted project's `package.json`, lockfiles, and framework config text to prepare a build plan for Vite, React, Create React App, and Next.js. This is metadata inspection only:
+
+- DEPLO does not install dependencies, import project config files, or execute `npm`, `pnpm`, `yarn`, `bun`, or user-defined scripts.
+- Vite and common React layouts are mapped to likely static output directories (`dist` or `build`). Next.js is treated as a managed-runtime deployment unless a static export is detected in config text.
+- Every plan requires an isolated runner. The existing Cloudflare Pages publishing path remains static-only until a separate, resource-limited build runner is configured.
+- Framework detection is not a live framework deployment feature and does not make arbitrary repositories safe to build.
+
+A production runner must isolate each build from the DEPLO web process, enforce CPU, memory, time, disk, and concurrency limits, avoid injecting deployment credentials into build environments, and publish only validated immutable artifacts.
