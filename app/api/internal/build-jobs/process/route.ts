@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   attachRunnerJob, claimNextBuildJob, claimNextRunnerPollJob, finishBuildJob,
-  releaseRunnerPollClaim, saveRunnerArtifact, scheduleRunnerPoll,
+  releaseRunnerPollClaim, scheduleRunnerPoll,
 } from "@/lib/db/supabase-build-jobs";
+import { getOwnedProjectById, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
 import { AsyncBuildRunnerError, getIsolatedBuildStatus, submitIsolatedBuild } from "@/lib/deploy/async-build-runner";
+import { downloadAndValidateBuildArtifact, BuildArtifactError } from "@/lib/deploy/build-artifact";
 import { readBuildRunnerConfiguration } from "@/lib/deploy/build-runner-contract";
+import { readCloudflarePagesCredentials, deployStaticDirectory } from "@/lib/deploy/cloudflare-pages";
+import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 function authorized(header: string | null, secret: string): boolean {
   if (secret.length < 32 || !header?.startsWith("Bearer ")) return false;
@@ -27,7 +34,34 @@ function errorCode(error: unknown): string {
     if (error.code === "rejected") return "runner_rejected";
     return "runner_invalid_response";
   }
-  return "runner_unavailable";
+  if (error instanceof BuildArtifactError) {
+    if (error.code === "not_configured") return "runner_not_configured";
+    if (error.code === "unavailable") return "runner_unavailable";
+    if (error.code === "rejected") return "runner_rejected";
+    return "artifact_invalid";
+  }
+  return "artifact_publish_failed";
+}
+
+async function publishBuildArtifact(job: NonNullable<Awaited<ReturnType<typeof claimNextRunnerPollJob>>>, artifact: {
+  artifactId: string; outputFileCount: number; outputBytes: number;
+}): Promise<string> {
+  const project = await getOwnedProjectById(job.owner_github_id, job.project_id);
+  if (!project) throw new Error("The build job project is no longer available.");
+  const credentials = readCloudflarePagesCredentials();
+  if (!credentials) throw new Error("Cloudflare Pages is not configured.");
+  const target = getAccountPagesTarget(credentials, job.owner_github_id, project.slug);
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "deplo-publish-"));
+  try {
+    const workDirectory = join(temporaryRoot, "artifact");
+    const validated = await downloadAndValidateBuildArtifact(artifact, workDirectory);
+    await ensureCloudflarePagesProject(target.config, target.productionBranch);
+    const deployed = await deployStaticDirectory(validated.extractionDirectory, target.productionBranch, target.config);
+    await updateOwnedProjectDeployment(job.owner_github_id, job.project_id, deployed.url);
+    return deployed.url;
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -47,21 +81,24 @@ export async function POST(request: NextRequest) {
         return response({ processed: true, action: "polled", jobId: pollJob.id, runnerStatus: status.status });
       }
       if (!("result" in status)) {
+        await releaseRunnerPollClaim(pollJob.id, 30);
         return response({ processed: true, action: "poll-retry", jobId: pollJob.id, error: "runner_invalid_response" }, 502);
       }
       if (status.result.status === "failed") {
         await finishBuildJob(pollJob.id, "failed", status.result.errorCode);
         return response({ processed: true, action: "failed", jobId: pollJob.id, retryScheduled: pollJob.attempt_count < pollJob.max_attempts });
       }
-      await saveRunnerArtifact(pollJob.id, {
+      const deploymentUrl = await publishBuildArtifact(pollJob, {
         artifactId: status.result.artifactId,
         outputFileCount: status.result.outputFileCount,
         outputBytes: status.result.outputBytes,
       });
-      return response({ processed: true, action: "artifact-ready", jobId: pollJob.id, artifactValidated: false });
+      await finishBuildJob(pollJob.id, "succeeded");
+      return response({ processed: true, action: "deployed", jobId: pollJob.id, deploymentUrl });
     } catch (error) {
+      const code = errorCode(error);
       await releaseRunnerPollClaim(pollJob.id, 30).catch(() => undefined);
-      return response({ processed: true, action: "poll-retry", jobId: pollJob.id, error: errorCode(error) }, 502);
+      return response({ processed: true, action: "publish-retry", jobId: pollJob.id, error: code }, 502);
     }
   }
 
