@@ -587,7 +587,7 @@ export default function Home() {
           <section className="panel deployments-panel">
             <div className="panel-heading">
               <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
-              <button className="text-button" onClick={() => void refreshDeploymentHistory()} disabled={historyLoading}><RefreshCw size={14} className={historyLoading ? "spin" : ""} /> {historyLoading ? "Refreshing…" : "Refresh"}</button>
+              <button className="text-button" onClick={() => void refreshDeploymentHistory(selected.id, Boolean(signedInUser))} disabled={historyLoading}><RefreshCw size={14} className={historyLoading ? "spin" : ""} /> {historyLoading ? "Refreshing…" : "Refresh"}</button>
             </div>
             <div className="deployment-table-wrap">
               <table className="deployment-table">
