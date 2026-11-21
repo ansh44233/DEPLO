@@ -50,10 +50,8 @@ export async function POST(request: NextRequest) {
   if (kind === "zip" && !hasZipSignature(bytes.subarray(0, 4))) {
     return jsonError("The selected file does not have a valid ZIP signature.", 400);
   }
-  if (kind === "html") {
-    if (!hasHtmlDocument(bytes)) {
-      return jsonError("The file must contain a complete HTML document.", 400);
-    }
+  if (kind === "html" && !hasHtmlDocument(bytes)) {
+    return jsonError("The file must contain a complete HTML document.", 400);
   }
 
   const uploadId = randomUUID();
