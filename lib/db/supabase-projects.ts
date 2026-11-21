@@ -117,3 +117,47 @@ export async function createOwnedProject(
   }
   return rows[0];
 }
+
+
+export async function getOwnedProjectById(
+  ownerGithubId: number,
+  projectId: string,
+  env: Record<string, string | undefined> = process.env,
+  fetcher: Fetcher = fetch,
+): Promise<OwnedProject | null> {
+  const config = readConfig(env);
+  if (!config) throw new ProjectStoreError("Account project storage is not configured.", 503);
+  const url = endpoint(config, {
+    select: PROJECT_FIELDS,
+    id: "eq." + projectId,
+    owner_github_id: "eq." + ownerGithubId,
+    limit: "1",
+  });
+  const rows = await request<OwnedProject[]>(url, config, { method: "GET" }, fetcher);
+  return Array.isArray(rows) ? rows[0] ?? null : null;
+}
+
+export async function updateOwnedProjectDeployment(
+  ownerGithubId: number,
+  projectId: string,
+  deploymentUrl: string,
+  env: Record<string, string | undefined> = process.env,
+  fetcher: Fetcher = fetch,
+): Promise<OwnedProject> {
+  const config = readConfig(env);
+  if (!config) throw new ProjectStoreError("Account project storage is not configured.", 503);
+  const url = endpoint(config, {
+    select: PROJECT_FIELDS,
+    id: "eq." + projectId,
+    owner_github_id: "eq." + ownerGithubId,
+  });
+  const rows = await request<OwnedProject[]>(url, config, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ deployment_url: deploymentUrl, updated_at: new Date().toISOString() }),
+  }, fetcher);
+  if (!Array.isArray(rows) || !rows[0]) {
+    throw new ProjectStoreError("The project could not be updated for this account.", 404);
+  }
+  return rows[0];
+}
