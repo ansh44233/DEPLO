@@ -14,13 +14,20 @@ The default request limits are:
 - 5,000 output files and 100 MiB total output
 - Network denied by default
 
-A future runner adapter must enforce these limits outside the DEPLO web process. Merely including limits in a request is not enforcement.
+A future runner implementation must enforce these limits outside the DEPLO web process. Merely including limits in a request is not enforcement.
 
-## Runner transport client
+## Authenticated asynchronous transport
 
-`lib/deploy/isolated-build-runner.ts` sends the bounded request to the configured runner over HTTPS. It uses a server-only bearer token, refuses redirects, omits cookies, bounds the response size, and validates the returned artifact metadata. It never forwards Cloudflare, Supabase, GitHub App, or session credentials.
+`lib/deploy/async-build-runner.ts` defines the asynchronous runner protocol:
 
-This is a transport client only. No build queue worker calls it yet, and it does not download or publish artifacts. A successful runner response is not sufficient to publish until the artifact is fetched through an authenticated artifact channel and independently inspected.
+1. DEPLO submits a build request to `POST /v1/builds`.
+2. The runner responds with HTTP 202 and an opaque `runnerJobId`.
+3. DEPLO polls `GET /v1/builds/{runnerJobId}` from a background worker.
+4. The runner reports `queued`, `running`, `succeeded`, or `failed`; terminal results are strictly validated.
+
+The transport uses a server-only bearer token, refuses redirects, omits cookies, uses bounded request timeouts and response sizes, and validates identifiers and artifact metadata. It never forwards Cloudflare, Supabase, GitHub App, or session credentials.
+
+This is a protocol client only. The durable queue is not yet wired to it, and no runner implementation, artifact download, or deployment publishing is included. Do not report a build as successful until DEPLO independently fetches and validates the artifact through a separate authenticated channel.
 
 ## Required runner isolation
 
@@ -36,7 +43,7 @@ Before enabling a real runner, its implementation must provide:
 
 ## Configuration
 
-- `DEPLO_BUILD_RUNNER_URL`: HTTPS endpoint for the isolated runner (localhost is permitted for local development only).
+- `DEPLO_BUILD_RUNNER_URL`: HTTPS base URL for the isolated runner (localhost is permitted for local development only).
 - `DEPLO_BUILD_RUNNER_TOKEN`: random token of at least 32 characters.
 
 These settings only configure transport to a runner. There is no runner implementation or queue dispatch yet. Do not add either variable to a `NEXT_PUBLIC_` setting.
