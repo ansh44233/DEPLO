@@ -7,13 +7,16 @@ export type OwnedBuildJob = {
   output_directory: "dist" | "build" | "out"; status: BuildJobStatus;
   attempt_count: number; max_attempts: number; available_at: string;
   claimed_at: string | null; error_code: string | null; created_at: string; updated_at: string;
+  runner_job_id?: string | null; runner_status?: "queued" | "running" | "succeeded" | null;
+  runner_poll_after?: string | null; artifact_id?: string | null;
+  artifact_file_count?: number | null; artifact_bytes?: number | null;
 };
 export class BuildJobStoreError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = "BuildJobStoreError"; }
 }
 type StoreConfig = { baseUrl: string; serviceKey: string };
 type Fetcher = typeof fetch;
-const FIELDS = "id,project_id,owner_github_id,source_commit_sha,framework,package_manager,output_directory,status,attempt_count,max_attempts,available_at,claimed_at,error_code,created_at,updated_at";
+const FIELDS = "id,project_id,owner_github_id,source_commit_sha,framework,package_manager,output_directory,status,attempt_count,max_attempts,available_at,claimed_at,error_code,created_at,updated_at,runner_job_id,runner_status,runner_poll_after,artifact_id,artifact_file_count,artifact_bytes";
 function readConfig(env: Record<string, string | undefined>): StoreConfig | null {
   const rawUrl = env.SUPABASE_URL?.trim(), serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!rawUrl || !serviceKey) return null;
@@ -40,6 +43,8 @@ function configured(env: Record<string, string | undefined>) {
   if (!config) throw new BuildJobStoreError("Build job storage is not configured.", 503);
   return config;
 }
+function rpcUrl(config: StoreConfig, name: string) { return new URL("/rest/v1/rpc/" + name, config.baseUrl).toString(); }
+
 export async function createOwnedBuildJob(
   input: Pick<OwnedBuildJob, "project_id" | "owner_github_id" | "source_commit_sha" | "framework" | "package_manager" | "output_directory">,
   env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch,
@@ -57,4 +62,32 @@ export async function cancelOwnedBuildJob(ownerGithubId: number, projectId: stri
   const config = configured(env);
   const rows = await request<OwnedBuildJob[]>(tableUrl(config, { select: FIELDS, id: "eq." + jobId, project_id: "eq." + projectId, owner_github_id: "eq." + ownerGithubId, status: "in.(pending,processing)" }), config, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "cancelled", updated_at: new Date().toISOString() }) }, fetcher);
   return Array.isArray(rows) ? rows[0] ?? null : null;
+}
+
+async function rpc<T>(name: string, body: Record<string, unknown>, env: Record<string, string | undefined>, fetcher: Fetcher): Promise<T> {
+  const config = configured(env);
+  return request<T>(rpcUrl(config, name), config, { method: "POST", body: JSON.stringify(body) }, fetcher);
+}
+export async function claimNextBuildJob(env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<OwnedBuildJob | null> {
+  const rows = await rpc<OwnedBuildJob[]>("claim_next_deplo_build_job", {}, env, fetcher);
+  return Array.isArray(rows) ? rows[0] ?? null : null;
+}
+export async function claimNextRunnerPollJob(env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<OwnedBuildJob | null> {
+  const rows = await rpc<OwnedBuildJob[]>("claim_next_deplo_runner_poll_job", {}, env, fetcher);
+  return Array.isArray(rows) ? rows[0] ?? null : null;
+}
+export async function attachRunnerJob(jobId: string, runnerJobId: string, env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<boolean> {
+  return rpc<boolean>("attach_deplo_runner_job", { p_job_id: jobId, p_runner_job_id: runnerJobId }, env, fetcher);
+}
+export async function scheduleRunnerPoll(jobId: string, status: "queued" | "running", delaySeconds: number, env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<void> {
+  await rpc<unknown>("schedule_deplo_runner_poll", { p_job_id: jobId, p_runner_status: status, p_delay_seconds: delaySeconds }, env, fetcher);
+}
+export async function saveRunnerArtifact(jobId: string, artifact: { artifactId: string; outputFileCount: number; outputBytes: number }, env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<void> {
+  await rpc<unknown>("save_deplo_runner_artifact", { p_job_id: jobId, p_artifact_id: artifact.artifactId, p_output_file_count: artifact.outputFileCount, p_output_bytes: artifact.outputBytes }, env, fetcher);
+}
+export async function finishBuildJob(jobId: string, status: "succeeded" | "failed", errorCode?: string, env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<void> {
+  await rpc<unknown>("finish_deplo_build_job", { p_job_id: jobId, p_status: status, p_error_code: errorCode ?? null }, env, fetcher);
+}
+export async function releaseRunnerPollClaim(jobId: string, delaySeconds: number, env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<void> {
+  await rpc<unknown>("release_deplo_runner_poll_claim", { p_job_id: jobId, p_delay_seconds: delaySeconds }, env, fetcher);
 }
