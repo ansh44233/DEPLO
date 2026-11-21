@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createOwnedProject, listOwnedProjects, ProjectStoreError, type OwnedProject } from "../../lib/db/supabase-projects";
+import { createOwnedProject, getOwnedProjectById, listOwnedProjects, ProjectStoreError, updateOwnedProjectDeployment, type OwnedProject } from "../../lib/db/supabase-projects";
 
 const env = {
   SUPABASE_URL: "https://example.supabase.co",
@@ -82,4 +82,40 @@ test("normalizes duplicate project slug responses to a conflict", async () => {
     }, env, fetcher),
     (error: unknown) => error instanceof ProjectStoreError && error.status === 409,
   );
+});
+
+
+test("looks up a project using both its ID and authenticated owner ID", async () => {
+  let requestedUrl = "";
+  const fetcher: typeof fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify([project]), { status: 200 });
+  };
+  const result = await getOwnedProjectById(12345, project.id, env, fetcher);
+  const url = new URL(requestedUrl);
+  assert.equal(url.searchParams.get("id"), "eq." + project.id);
+  assert.equal(url.searchParams.get("owner_github_id"), "eq.12345");
+  assert.equal(result?.id, project.id);
+});
+
+test("returns no project when the requested ID is not owned by the signed-in user", async () => {
+  const fetcher: typeof fetch = async () => new Response("[]", { status: 200 });
+  const result = await getOwnedProjectById(99999, project.id, env, fetcher);
+  assert.equal(result, null);
+});
+
+test("updates deployment URL only for the matching account-owned project", async () => {
+  let requestedUrl = "";
+  let requestBody = "";
+  const fetcher: typeof fetch = async (input, init) => {
+    requestedUrl = String(input);
+    requestBody = String(init?.body ?? "");
+    return new Response(JSON.stringify([{ ...project, deployment_url: "https://site.pages.dev" }]), { status: 200 });
+  };
+  const result = await updateOwnedProjectDeployment(12345, project.id, "https://site.pages.dev", env, fetcher);
+  const url = new URL(requestedUrl);
+  assert.equal(url.searchParams.get("owner_github_id"), "eq.12345");
+  assert.equal(url.searchParams.get("id"), "eq." + project.id);
+  assert.equal(JSON.parse(requestBody).deployment_url, "https://site.pages.dev");
+  assert.equal(result.deployment_url, "https://site.pages.dev");
 });
