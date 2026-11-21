@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { parsePublicGitHubUrl } from "@/lib/github/parse-repository-url";
+import { isValidDeploymentSlug, isValidGitHubBranch } from "@/lib/github/deploy-validation";
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
@@ -12,7 +13,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
-const GITHUB_BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/;
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -76,11 +76,10 @@ export async function POST(request: NextRequest) {
   if (typeof body.repositoryUrl !== "string") return jsonError("A public GitHub repository URL is required.", 400);
   const repository = parsePublicGitHubUrl(body.repositoryUrl);
   if (!repository) return jsonError("Enter a canonical public GitHub repository URL.", 400);
-  if (typeof body.branch !== "string" || !GITHUB_BRANCH_PATTERN.test(body.branch) ||
-      body.branch.includes("..") || body.branch.endsWith("/") || body.branch.includes("//")) {
+  if (typeof body.branch !== "string" || !isValidGitHubBranch(body.branch)) {
     return jsonError("Enter a valid Git branch name.", 400);
   }
-  if (typeof body.projectSlug !== "string" || !/^[a-z0-9][a-z0-9-]{0,57}$/.test(body.projectSlug)) {
+  if (typeof body.projectSlug !== "string" || !isValidDeploymentSlug(body.projectSlug)) {
     return jsonError("Project slug must use lowercase letters, numbers, and hyphens.", 400);
   }
 
