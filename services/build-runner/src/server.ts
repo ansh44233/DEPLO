@@ -150,7 +150,13 @@ export function createRunnerServer(config: RunnerConfig) {
   if (config.token.length < 32) throw new Error("Runner token must contain at least 32 characters.");
   if (!isAbsolute(config.dataDir)) throw new Error("Runner data directory must be absolute.");
   config = { ...config, dataDir: resolve(config.dataDir) };
-  return createServer(async (req, res) => {
+  const server = createServer({
+    headersTimeout: 15_000,
+    requestTimeout: 120_000,
+    keepAliveTimeout: 5_000,
+    maxRequestsPerSocket: 100,
+    maxHeaderSize: 16 * 1024,
+  }, async (req, res) => {
     try {
       const path = new URL(req.url ?? "/", "http://runner.local").pathname;
       if (req.method === "GET" && path === "/healthz") {
@@ -194,6 +200,7 @@ export function createRunnerServer(config: RunnerConfig) {
       return json(res, 500, { error: "internal_error" });
     }
   });
+  return server;
 }
 
 if (process.env.DEPLO_RUNNER_TOKEN && process.env.DEPLO_RUNNER_DATA_DIR) {
