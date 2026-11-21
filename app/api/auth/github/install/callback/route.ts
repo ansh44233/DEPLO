@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       },
       body: JSON.stringify({
         owner_github_id: user.id, installation_id: installationId,
-        account_login: account.login, account_type: account.type, updated_at: new Date().toISOString(),
+        account_login: account.login, account_type: account.type, suspended_at: null, updated_at: new Date().toISOString(),
       }),
       cache: "no-store", signal: AbortSignal.timeout(8_000),
     });

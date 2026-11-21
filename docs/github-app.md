@@ -6,7 +6,7 @@ DEPLO includes an account-bound GitHub App installation flow for the future priv
 
 Create a GitHub App with:
 - Repository permissions: **Contents: Read-only**, **Metadata: Read-only**.
-- Subscribe to **Push** events.
+- Subscribe to **Push** and **Installation** events.
 - Setup URL: `https://YOUR_DEPLO_HOST/api/auth/github/install/callback`.
 - Webhook URL: `https://YOUR_DEPLO_HOST/api/webhooks/github`.
 - Webhook secret: the same value configured as `DEPLO_GITHUB_WEBHOOK_SECRET`.
@@ -24,7 +24,7 @@ Set these server-only variables:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-Apply migration `0004_github_app_installations.sql`. The installation mapping stores the DEPLO account ID, GitHub installation ID, and installation account label. It does not store access tokens. Installation tokens are minted on demand using a short-lived RS256 app JWT and request only Contents and Metadata read permissions.
+Apply migrations `0004_github_app_installations.sql` and `0005_github_app_installation_lifecycle.sql`. DEPLO removes deleted installation records and disables deployments while an installation is suspended; unsuspending restores the connection. The installation mapping stores the DEPLO account ID, GitHub installation ID, and installation account label. It does not store access tokens. Installation tokens are minted on demand using a short-lived RS256 app JWT and request only Contents and Metadata read permissions.
 
 ## Current scope
 

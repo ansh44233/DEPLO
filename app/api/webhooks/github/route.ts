@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { safeEqual } from "@/lib/auth/session";
+import { normalizeInstallationLifecycleEvent } from "@/lib/github/installation-lifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ type PushPayload = {
   repository?: { full_name?: unknown };
   sender?: { id?: unknown };
 };
+type InstallationPayload = { action?: unknown; installation?: { id?: unknown } };
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, {
@@ -36,10 +38,6 @@ export async function POST(request: NextRequest) {
   const secret = process.env.DEPLO_GITHUB_WEBHOOK_SECRET ?? "";
   if (secret.length < 32) return error("GitHub webhook ingestion is not configured.", 503);
 
-  if (request.headers.get("x-github-event") !== "push") {
-    return NextResponse.json({ accepted: true, ignored: true }, { headers: { "Cache-Control": "no-store" } });
-  }
-
   const deliveryId = request.headers.get("x-github-delivery") ?? "";
   if (!DELIVERY_PATTERN.test(deliveryId)) return error("Invalid GitHub delivery ID.", 400);
 
@@ -52,24 +50,58 @@ export async function POST(request: NextRequest) {
     return error("Invalid GitHub webhook signature.", 401);
   }
 
-  let payload: PushPayload;
+  let payload: unknown;
   try {
-    payload = JSON.parse(rawBody) as PushPayload;
+    payload = JSON.parse(rawBody) as unknown;
   } catch {
     return error("Invalid JSON webhook payload.", 400);
   }
 
-  const repository = payload.repository?.full_name;
-  const ref = payload.ref;
-  const after = payload.after;
+  const event = request.headers.get("x-github-event");
+  if (event === "installation") {
+    const installationPayload = payload as InstallationPayload;
+    const update = normalizeInstallationLifecycleEvent(installationPayload.action, installationPayload.installation?.id);
+    if (!update) return NextResponse.json({ accepted: true, ignored: true }, { headers: { "Cache-Control": "no-store" } });
+    const baseUrl = process.env.SUPABASE_URL?.trim();
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!baseUrl || !serviceKey) return error("GitHub App installation storage is not configured.", 503);
+    try {
+      const parsed = new URL(baseUrl);
+      if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") return error("GitHub App installation storage is not configured.", 503);
+      const endpoint = new URL("/rest/v1/github_app_installations", parsed);
+      endpoint.searchParams.set("installation_id", "eq." + update.installationId);
+      const method = update.operation === "delete" ? "DELETE" : "PATCH";
+      const body = update.operation === "delete" ? undefined : JSON.stringify({
+        suspended_at: update.operation === "suspend" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      });
+      const stored = await fetch(endpoint, {
+        method,
+        headers: { apikey: serviceKey, Authorization: "Bearer " + serviceKey, ...(body ? { "Content-Type": "application/json" } : {}) },
+        ...(body ? { body } : {}),
+        signal: AbortSignal.timeout(8_000),
+        cache: "no-store",
+      });
+      if (!stored.ok) return error("GitHub App installation status could not be updated.", 502);
+      return NextResponse.json({ accepted: true, updated: true }, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return error("GitHub App installation storage is temporarily unavailable.", 502);
+    }
+  }
+  if (event !== "push") return NextResponse.json({ accepted: true, ignored: true }, { headers: { "Cache-Control": "no-store" } });
+  const pushPayload = payload as PushPayload;
+
+  const repository = pushPayload.repository?.full_name;
+  const ref = pushPayload.ref;
+  const after = pushPayload.after;
   const match = typeof ref === "string" ? REF_PATTERN.exec(ref) : null;
   if (
     typeof repository !== "string" || !REPOSITORY_PATTERN.test(repository) ||
     !match || typeof after !== "string" || !SHA_PATTERN.test(after) ||
-    typeof payload.deleted !== "boolean"
+    typeof pushPayload.deleted !== "boolean"
   ) return error("Webhook payload is missing valid repository, branch, or commit data.", 400);
 
-  if (payload.deleted || after === "0000000000000000000000000000000000000000") {
+  if (pushPayload.deleted || after === "0000000000000000000000000000000000000000") {
     return NextResponse.json({ accepted: true, ignored: true, reason: "branch-deleted" }, {
       headers: { "Cache-Control": "no-store" },
     });
@@ -102,7 +134,7 @@ export async function POST(request: NextRequest) {
         repository_full_name: repository.toLowerCase(),
         branch: match[1],
         commit_sha: after,
-        sender_github_id: Number.isSafeInteger(payload.sender?.id) ? payload.sender?.id : null,
+        sender_github_id: Number.isSafeInteger(pushPayload.sender?.id) ? pushPayload.sender?.id : null,
         status: "received",
       }),
       signal: AbortSignal.timeout(8_000),

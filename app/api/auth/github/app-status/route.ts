@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       return response({ error: "GitHub App status storage is not configured." }, 503);
     }
     const endpoint = new URL("/rest/v1/github_app_installations", parsed);
-    endpoint.searchParams.set("select", "account_login,account_type");
+    endpoint.searchParams.set("select", "account_login,account_type,suspended_at");
     endpoint.searchParams.set("owner_github_id", "eq." + user.id);
     endpoint.searchParams.set("limit", "1");
     const result = await fetch(endpoint, {
@@ -48,15 +48,17 @@ export async function GET(request: NextRequest) {
       signal: AbortSignal.timeout(8_000),
     });
     if (!result.ok) return response({ error: "GitHub App status is temporarily unavailable." }, 502);
-    const rows = await result.json() as { account_login?: unknown; account_type?: unknown }[];
+    const rows = await result.json() as { account_login?: unknown; account_type?: unknown; suspended_at?: unknown }[];
     const row = rows[0];
     const accountLogin = typeof row?.account_login === "string" ? row.account_login : null;
     const accountType = row?.account_type === "User" || row?.account_type === "Organization"
       ? row.account_type
       : null;
+    const suspended = typeof row?.suspended_at === "string" && row.suspended_at.length > 0;
     return response({
       configured: appConfigured,
-      connected: Boolean(accountLogin && accountType),
+      connected: Boolean(accountLogin && accountType && !suspended),
+      suspended,
       accountLogin,
       accountType,
     });

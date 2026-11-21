@@ -60,3 +60,14 @@ test("ignores deleted branches after signature verification", async () => {
   assert.equal(response.status, 200);
   assert.equal((await response.json()).reason, "branch-deleted");
 });
+
+import { normalizeInstallationLifecycleEvent } from "../../lib/github/installation-lifecycle";
+
+test("normalizes GitHub App installation lifecycle actions", () => {
+  assert.deepEqual(normalizeInstallationLifecycleEvent("suspend", 123), { operation: "suspend", installationId: 123 });
+  assert.deepEqual(normalizeInstallationLifecycleEvent("unsuspend", 123), { operation: "unsuspend", installationId: 123 });
+  assert.deepEqual(normalizeInstallationLifecycleEvent("created", 123), { operation: "unsuspend", installationId: 123 });
+  assert.deepEqual(normalizeInstallationLifecycleEvent("deleted", 123), { operation: "delete", installationId: 123 });
+  assert.equal(normalizeInstallationLifecycleEvent("other", 123), null);
+  assert.equal(normalizeInstallationLifecycleEvent("deleted", -1), null);
+});
