@@ -2,21 +2,31 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
-export type CloudflarePagesConfig = {
+export type CloudflarePagesCredentials = {
   accountId: string;
   apiToken: string;
+};
+
+export type CloudflarePagesConfig = CloudflarePagesCredentials & {
   projectName: string;
 };
+
+export function readCloudflarePagesCredentials(
+  env: Record<string, string | undefined> = process.env,
+): CloudflarePagesCredentials | null {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? "";
+  const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? "";
+  if (!accountId || !apiToken) return null;
+  return { accountId, apiToken };
+}
 
 export function readCloudflarePagesConfig(
   env: Record<string, string | undefined> = process.env,
 ): CloudflarePagesConfig | null {
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? "";
-  const apiToken = env.CLOUDFLARE_API_TOKEN?.trim() ?? "";
+  const credentials = readCloudflarePagesCredentials(env);
   const projectName = env.CLOUDFLARE_PAGES_PROJECT_NAME?.trim() ?? "";
-
-  if (!accountId || !apiToken || !isValidPagesProjectName(projectName)) return null;
-  return { accountId, apiToken, projectName };
+  if (!credentials || !isValidPagesProjectName(projectName)) return null;
+  return { ...credentials, projectName };
 }
 
 export function isValidPagesProjectName(value: string): boolean {
