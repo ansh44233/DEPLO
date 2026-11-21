@@ -8,6 +8,7 @@ const env = {
 };
 const job = {
   jobId: "00000000-0000-4000-8000-000000000001",
+  sourceId: "source_123",
   sourceCommitSha: "a".repeat(40),
   framework: "vite" as const,
   packageManager: "pnpm" as const,
@@ -29,6 +30,7 @@ test("dispatches only the bounded build contract to the isolated runner", async 
   assert.equal(capturedInit?.credentials, "omit");
   const body = JSON.parse(String(capturedInit?.body));
   assert.equal(body.sourceCommitSha, job.sourceCommitSha);
+  assert.equal(body.sourceId, job.sourceId);
   assert.equal(body.limits.networkPolicy, "deny-by-default");
   assert.deepEqual(result, { status: "succeeded", artifactId: "artifact_123", outputFileCount: 24, outputBytes: 8192 });
 });
