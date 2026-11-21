@@ -3,11 +3,24 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as yazl from "yazl";
 import { createRunnerServer } from "../../services/build-runner/src/server";
 
 const token = "runner-secret-".padEnd(40, "x");
 const jobId = "00000000-0000-4000-8000-000000000001";
-const archive = new Uint8Array([0x50, 0x4b, 3, 4, 1, 2, 3, 4]);
+function makeZip(items: { name: string; content: Buffer; mode?: number }[] = [
+  { name: "index.html", content: Buffer.from("<!doctype html><html></html>") },
+]): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const zip = new yazl.ZipFile();
+    const chunks: Buffer[] = [];
+    zip.outputStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    zip.outputStream.on("error", reject);
+    zip.outputStream.on("end", () => resolve(Buffer.concat(chunks)));
+    for (const item of items) zip.addBuffer(item.content, item.name, { compress: true, ...(item.mode ? { mode: item.mode } : {}) });
+    zip.end();
+  });
+}
 async function setup(t: test.TestContext) {
   const dir = await mkdtemp(join(tmpdir(), "deplo-runner-"));
   const server = createRunnerServer({ token, dataDir: dir });
@@ -27,6 +40,7 @@ function form(bytes: Uint8Array, metadata = { repositoryFullName: "octocat/hello
 }
 
 test("health endpoint reports runner readiness without enabling builds", async t => {
+  const archive = await makeZip();
   const { base } = await setup(t);
   const response = await fetch(base + "/healthz");
   assert.equal(response.status, 200);
@@ -34,6 +48,7 @@ test("health endpoint reports runner readiness without enabling builds", async t
 });
 
 test("source intake requires authentication and stores immutable archive bytes", async t => {
+  const archive = await makeZip();
   const { base, dir } = await setup(t);
   const denied = await fetch(base + "/v1/sources", { method: "POST", body: form(archive), headers: { "Idempotency-Key": jobId } });
   assert.equal(denied.status, 401);
@@ -45,6 +60,7 @@ test("source intake requires authentication and stores immutable archive bytes",
 });
 
 test("source intake is idempotent and rejects conflicting retries", async t => {
+  const archive = await makeZip();
   const { base, dir } = await setup(t);
   const send = (bytes: Uint8Array, sha = "a".repeat(40)) => fetch(base + "/v1/sources", {
     method: "POST", body: form(bytes, { repositoryFullName: "octocat/hello-world", sourceCommitSha: sha }),
@@ -55,7 +71,8 @@ test("source intake is idempotent and rejects conflicting retries", async t => {
   const retry = await send(archive);
   assert.equal(retry.status, 200);
   assert.deepEqual(await retry.json(), firstBody);
-  const conflict = await send(new Uint8Array([0x50, 0x4b, 3, 4, 9, 9]));
+  const conflictingArchive = await makeZip([{ name: "index.html", content: Buffer.from("<!doctype html><html>different</html>") }]);
+  const conflict = await send(conflictingArchive);
   assert.equal(conflict.status, 409);
   const files = await readdir(dir);
   assert.equal(files.filter(name => name.startsWith("idem-")).length, 1);
@@ -63,15 +80,19 @@ test("source intake is idempotent and rejects conflicting retries", async t => {
 });
 
 test("source intake rejects malformed metadata and non-ZIP payloads", async t => {
+  const archive = await makeZip();
   const { base } = await setup(t);
   const send = (body: FormData) => fetch(base + "/v1/sources", {
     method: "POST", body, headers: { Authorization: "Bearer " + token, "Idempotency-Key": jobId },
   });
   assert.equal((await send(form(archive, { repositoryFullName: "../bad", sourceCommitSha: "a".repeat(40) }))).status, 400);
   assert.equal((await send(form(new Uint8Array([1, 2, 3, 4])))).status, 413);
+  const malformedZip = new Uint8Array([0x50, 0x4b, 3, 4, 1, 2, 3, 4]);
+  assert.equal((await send(form(malformedZip))).status, 400);
 });
 
 test("build endpoint fails closed until an isolation backend is configured", async t => {
+  const archive = await makeZip();
   const { base } = await setup(t);
   const response = await fetch(base + "/v1/builds", {
     method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: "{}",
@@ -82,6 +103,7 @@ test("build endpoint fails closed until an isolation backend is configured", asy
 
 
 test("maintenance cleanup expires old archives and matching idempotency records", async t => {
+  const archive = await makeZip();
   const { base, dir } = await setup(t);
   const upload = await fetch(base + "/v1/sources", {
     method: "POST", body: form(archive),
@@ -106,6 +128,7 @@ test("maintenance cleanup expires old archives and matching idempotency records"
 });
 
 test("maintenance cleanup keeps recent source archives", async t => {
+  const archive = await makeZip();
   const { base, dir } = await setup(t);
   const response = await fetch(base + "/v1/sources", {
     method: "POST", body: form(archive),
@@ -127,4 +150,24 @@ test("runner HTTP server applies bounded header, request, and keep-alive limits"
   assert.equal(server.keepAliveTimeout, 5_000);
   assert.equal(server.maxRequestsPerSocket, 100);
   assert.equal(server.maxHeadersCount, 50);
+});
+
+
+test("source intake rejects ZIP path traversal and symbolic links", async t => {
+  const { base, dir } = await setup(t);
+  const send = (bytes: Buffer, id: string) => fetch(base + "/v1/sources", {
+    method: "POST", body: form(bytes),
+    headers: { Authorization: "Bearer " + token, "Idempotency-Key": id },
+  });
+  const traversalBase = await makeZip([{ name: "safe.txt", content: Buffer.from("no") }]);
+  const traversal = Buffer.from(traversalBase);
+  const safeName = Buffer.from("safe.txt");
+  const traversalName = Buffer.from("../x.txt");
+  for (let offset = 0; (offset = traversal.indexOf(safeName, offset)) !== -1; offset += traversalName.length) {
+    traversalName.copy(traversal, offset);
+  }
+  assert.equal((await send(traversal, "00000000-0000-4000-8000-000000000002")).status, 400);
+  const symlink = await makeZip([{ name: "link", content: Buffer.from("target"), mode: 0o120777 }]);
+  assert.equal((await send(symlink, "00000000-0000-4000-8000-000000000003")).status, 400);
+  assert.deepEqual(await readdir(dir), []);
 });

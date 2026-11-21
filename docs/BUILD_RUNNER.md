@@ -14,7 +14,7 @@ The source handoff is:
 4. The runner returns HTTP 201 (or an idempotent HTTP 200) with an opaque `sourceId`. The runner must bind that ID to the exact commit, repository, archive digest, and idempotency key; conflicting retries must be rejected.
 5. DEPLO submits `POST /v1/builds` with the opaque `sourceId`, exact commit SHA, framework, package manager, output directory, and resource limits. The same job UUID is the build idempotency key.
 
-The runner must independently validate and safely extract the archive, verify its recorded source identity, reject path traversal, duplicate paths, symlinks and special files, and store it in a private immutable source area. It must not trust a repository name or commit string as a path. The source archive must not be executed during intake.
+The runner independently validates each archive during intake by extracting it into a private temporary directory using DEPLO's shared safe ZIP extractor, then removes that temporary directory before persisting the immutable archive. This rejects malformed ZIPs, path traversal, duplicate paths, symlinks, special files, excessive entry counts, expanded size, and compression ratios. A future build sandbox must re-validate and extract the archive inside its own isolated workspace; it must not trust a repository name or commit string as a path. The source archive is never executed during intake.
 
 ## Asynchronous build protocol
 

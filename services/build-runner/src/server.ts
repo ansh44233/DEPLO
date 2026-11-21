@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { extractZipSafely } from "../../../lib/uploads/extract-zip";
 import { join, isAbsolute, resolve } from "node:path";
 
 const MAX_ARCHIVE = 25 * 1024 * 1024;
@@ -71,6 +72,23 @@ function parseMetadata(raw: Buffer): { repositoryFullName: string; sourceCommitS
   }
   return { repositoryFullName: item.repositoryFullName, sourceCommitSha: item.sourceCommitSha };
 }
+async function validateSourceArchive(config: RunnerConfig, archive: Buffer): Promise<void> {
+  await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+  await chmod(config.dataDir, 0o700);
+  const validationRoot = await mkdtemp(join(config.dataDir, ".validate-"));
+  const archivePath = join(validationRoot, "source.zip");
+  try {
+    await writeFile(archivePath, archive, { flag: "wx", mode: 0o600 });
+    try {
+      await extractZipSafely(archivePath, join(validationRoot, "extracted"));
+    } catch {
+      throw new Error("invalid_archive");
+    }
+  } finally {
+    await rm(validationRoot, { recursive: true, force: true });
+  }
+}
+
 async function saveSource(config: RunnerConfig, key: string, metadata: ReturnType<typeof parseMetadata>, archive: Buffer) {
   const digest = createHash("sha256").update(archive).digest("hex");
   const keyId = createHash("sha256").update(key).digest("hex");
@@ -176,6 +194,7 @@ export function createRunnerServer(config: RunnerConfig) {
           return json(res, 413, { error: "invalid_or_oversized_archive" });
         }
         const metadata = parseMetadata(metadataParts[0].bytes);
+        await validateSourceArchive(config, archive);
         const saved = await saveSource(config, key, metadata, archive);
         return json(res, saved.duplicate ? 200 : 201, { sourceId: saved.sourceId });
       }
@@ -195,7 +214,7 @@ export function createRunnerServer(config: RunnerConfig) {
       const code = error instanceof Error ? error.message : "internal_error";
       if (code === "body_too_large") return json(res, 413, { error: code });
       if (code === "source_conflict") return json(res, 409, { error: code });
-      if (["invalid_multipart", "invalid_metadata"].includes(code)) return json(res, 400, { error: code });
+      if (["invalid_multipart", "invalid_metadata", "invalid_archive"].includes(code)) return json(res, 400, { error: code });
       return json(res, 500, { error: "internal_error" });
     }
   });
