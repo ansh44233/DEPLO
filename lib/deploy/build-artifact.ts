@@ -80,7 +80,7 @@ export async function downloadAndValidateBuildArtifact(
       },
     });
 
-    await mkdir(workDirectory, { recursive: true, mode: 0o700 });
+    await mkdir(workDirectory, { recursive: false, mode: 0o700 });
     await pipeline(
       Readable.fromWeb(response.body as import("node:stream/web").ReadableStream<Uint8Array>),
       meter,
