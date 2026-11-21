@@ -181,3 +181,13 @@ export async function deleteOwnedProject(
   }, fetcher);
   return Array.isArray(rows) && rows.length > 0;
 }
+
+
+export async function renameOwnedProject(ownerGithubId: number, projectId: string, name: string, env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<OwnedProject> {
+  const config = readConfig(env);
+  if (!config) throw new ProjectStoreError("Account project storage is not configured.", 503);
+  const url = endpoint(config, { select: PROJECT_FIELDS, id: "eq." + projectId, owner_github_id: "eq." + ownerGithubId });
+  const rows = await request<OwnedProject[]>(url, config, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ name, updated_at: new Date().toISOString() }) }, fetcher);
+  if (!Array.isArray(rows) || !rows[0]) throw new ProjectStoreError("The project could not be renamed for this account.", 404);
+  return rows[0];
+}

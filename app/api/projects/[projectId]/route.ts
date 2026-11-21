@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/auth/session";
-import { deleteOwnedProject, getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projects";
+import { deleteOwnedProject, getOwnedProjectById, renameOwnedProject, ProjectStoreError } from "@/lib/db/supabase-projects";
 import { readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { deleteCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 
@@ -54,6 +54,27 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const message = error instanceof ProjectStoreError
       ? error.message
       : "The hosted project could not be removed. The DEPLO project record was kept.";
+    return errorResponse(message, status);
+  }
+}
+
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const user = verifySessionToken(request.cookies.get("deplo_session")?.value, process.env.DEPLO_SESSION_SECRET ?? "");
+  if (!user) return errorResponse("Sign in with GitHub to update a project.", 401);
+  const { projectId } = await context.params;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) return errorResponse("Invalid project ID.", 400);
+  let body: unknown;
+  try { body = await request.json(); } catch { return errorResponse("Send project settings as JSON.", 400); }
+  if (typeof body !== "object" || body === null || !("name" in body) || typeof body.name !== "string") return errorResponse("A project name is required.", 400);
+  const name = body.name.trim();
+  if (name.length < 1 || name.length > 60 || /[\\u0000-\\u001f\\u007f]/.test(name)) return errorResponse("Project name must contain 1 to 60 printable characters.", 400);
+  try {
+    const project = await renameOwnedProject(user.id, projectId, name);
+    return NextResponse.json({ project }, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+  } catch (error) {
+    const status = error instanceof ProjectStoreError ? error.status : 502;
+    const message = error instanceof ProjectStoreError ? error.message : "Project settings could not be saved.";
     return errorResponse(message, status);
   }
 }

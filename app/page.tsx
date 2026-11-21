@@ -100,6 +100,8 @@ export default function Home() {
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
   const [projectDeleting, setProjectDeleting] = useState(false);
+  const [projectNameInput, setProjectNameInput] = useState("");
+  const [projectRenaming, setProjectRenaming] = useState(false);
   const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
   const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
   const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
@@ -249,6 +251,7 @@ export default function Home() {
     name: "No project selected", domain: "—", source: "—", branch: "—",
     status: "Connected" as const, updated: "—", accent: "violet",
   };
+  useEffect(() => { setProjectNameInput(selected.name); }, [selected.id, selected.name]);
   useEffect(() => {
     void refreshDeploymentHistory(selected.id, Boolean(signedInUser));
   }, [refreshDeploymentHistory, selected.id, signedInUser]);
@@ -358,6 +361,24 @@ export default function Home() {
   }
 
 
+
+
+  async function renameSelectedProject() {
+    if (!selected.id || !signedInUser || projectRenaming) return;
+    const name = projectNameInput.trim();
+    if (!name || name.length > 60) { setNotice("Project name must contain 1 to 60 characters."); return; }
+    if (name === selected.name) return;
+    setProjectRenaming(true); setNotice("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const data = await response.json() as { project?: AccountProject; error?: string };
+      if (!response.ok || !data.project) throw new Error(data.error || "Project name could not be updated.");
+      setProjects(current => current.map(project => project.id === selected.id ? { ...project, name: data.project!.name, updated: "Just now" } : project));
+      setActiveProject(data.project.name);
+      setNotice("Project name updated. Its deployment URL and repository settings are unchanged.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Project name could not be updated."); }
+    finally { setProjectRenaming(false); }
+  }
 
   async function deleteSelectedProject() {
     if (!selected.id || !signedInUser || projectDeleting) return;
@@ -737,7 +758,7 @@ export default function Home() {
                 <Detail label="Source" value={selected.source} icon={<FolderGit2 size={15} />} />
               </div>
               {selected.id && selected.sourceType === "github" && <button className="primary-button deploy-project-button" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>{projectDeploying ? "Deploying…" : "Deploy to Cloudflare Pages"} <ArrowUpRight size={14} /></button>}
-              <button className="outline-button" onClick={() => setNotice(`Project settings for ${selected.name} will be available in a later milestone.`)}>Project settings <ArrowUpRight size={14} /></button>
+              {selected.id && signedInUser && <form className="project-settings-form" onSubmit={(event) => { event.preventDefault(); void renameSelectedProject(); }}><label htmlFor="project-display-name">Project name</label><div className="repo-input-row"><input id="project-display-name" value={projectNameInput} onChange={(event) => setProjectNameInput(event.target.value)} maxLength={60} /><button className="outline-button" type="submit" disabled={projectRenaming || !projectNameInput.trim() || projectNameInput.trim() === selected.name}>{projectRenaming ? "Saving…" : "Save name"}</button></div><p className="repo-help">Changes the dashboard name only. Project slug, hosted URL, repository, and deployment branch stay the same.</p></form>}
             </section>
           </div>
 

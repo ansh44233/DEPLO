@@ -254,3 +254,8 @@ Required server environment:
 ## GitHub App installation foundation
 
 DEPLO includes an account-bound GitHub App installation flow and server-side installation-token minting foundation. Configure the app with Contents and Metadata read-only permissions, a setup URL at `/api/auth/github/install/callback`, and the push webhook URL at `/api/webhooks/github`. Apply migration `0004_github_app_installations.sql`. See [GitHub App setup](docs/github-app.md). Private-repository unattended webhook deployment is not active until the worker is integrated with installation tokens.
+
+
+## Project settings
+
+Signed-in project owners can rename a saved project through `PATCH /api/projects/{projectId}`. The endpoint verifies the signed GitHub session and scopes the database update by both project ID and owner ID. Names are limited to 60 characters. Renaming changes the dashboard display name only; the project slug, isolated Cloudflare Pages project, deployment URL, GitHub repository, and production branch remain unchanged.

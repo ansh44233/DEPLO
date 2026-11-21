@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createOwnedProject, getOwnedProjectById, listOwnedProjects, ProjectStoreError, updateOwnedProjectDeployment, type OwnedProject } from "../../lib/db/supabase-projects";
+import { createOwnedProject, getOwnedProjectById, listOwnedProjects, ProjectStoreError, renameOwnedProject, updateOwnedProjectDeployment, type OwnedProject } from "../../lib/db/supabase-projects";
 
 const env = {
   SUPABASE_URL: "https://example.supabase.co",
@@ -118,4 +118,22 @@ test("updates deployment URL only for the matching account-owned project", async
   assert.equal(url.searchParams.get("id"), "eq." + project.id);
   assert.equal(JSON.parse(requestBody).deployment_url, "https://site.pages.dev");
   assert.equal(result.deployment_url, "https://site.pages.dev");
+});
+
+
+test("renames only the project matching its ID and authenticated owner", async () => {
+  let requestedUrl = "";
+  let requestBody = "";
+  const fetcher: typeof fetch = async (input, init) => { requestedUrl = String(input); requestBody = String(init?.body ?? ""); return new Response(JSON.stringify([{ ...project, name: "Renamed site" }]), { status: 200 }); };
+  const result = await renameOwnedProject(12345, project.id, "Renamed site", env, fetcher);
+  const url = new URL(requestedUrl);
+  assert.equal(url.searchParams.get("id"), "eq." + project.id);
+  assert.equal(url.searchParams.get("owner_github_id"), "eq.12345");
+  assert.equal(JSON.parse(requestBody).name, "Renamed site");
+  assert.equal(result.name, "Renamed site");
+});
+
+test("does not rename a project that is not owned by the signed-in account", async () => {
+  const fetcher: typeof fetch = async () => new Response("[]", { status: 200 });
+  await assert.rejects(renameOwnedProject(99999, project.id, "Renamed site", env, fetcher), (error: unknown) => error instanceof ProjectStoreError && error.status === 404);
 });
