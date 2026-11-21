@@ -5,7 +5,7 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
-- Authenticated server-side upload endpoint with private local filesystem storage for ZIP and HTML files.
+- Authenticated server-side upload endpoint with private local filesystem storage and metadata sidecars for ZIP and HTML files.
 - Shared bearer-token validation using constant-time comparison and server-side upload configuration.
 - Server-side content checks, request-size limits, and upload authentication tests.
 - Archive path traversal checks and metadata limits for the future ZIP extraction pipeline.
