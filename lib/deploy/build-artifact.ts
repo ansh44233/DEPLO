@@ -49,7 +49,7 @@ export async function downloadAndValidateBuildArtifact(
       cache: "no-store",
       credentials: "omit",
       redirect: "error",
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(60_000),
     });
 
     if (response.status === 429 || response.status >= 500) throw new BuildArtifactError("The build runner is temporarily unavailable.", "unavailable");
