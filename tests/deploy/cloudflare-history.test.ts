@@ -20,7 +20,7 @@ test("normalizes Cloudflare deployment records and limits output", () => {
     environment: "production",
     created_on: "2026-11-21T10:00:00.000Z",
     latest_stage: { status: "success" },
-    deployment_trigger: { metadata: { branch: "main", commit_message: "Add homepage" } },
+    deployment_trigger: { metadata: { branch: "main", commit_message: "Add homepage", commit_hash: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678" } },
   }, {
     id: "invalid",
     url: "https://example.com",
@@ -32,6 +32,7 @@ test("normalizes Cloudflare deployment records and limits output", () => {
     createdAt: "2026-11-21T10:00:00.000Z",
     branch: "main",
     commitMessage: "Add homepage",
+    commitSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
     status: "success",
   }]);
 });
@@ -188,4 +189,14 @@ test("rejects invalid deployment log provider responses", async () => {
       new Response(JSON.stringify({ success: true, result: { data: "not-an-array" } }), { status: 200 })),
     /invalid deployment logs response/,
   );
+});
+
+
+test("ignores malformed commit hashes from provider metadata", () => {
+  const result = normalizeCloudflareDeployments([{
+    id: "deployment-2",
+    url: "https://abc123.deplo-sites.pages.dev",
+    deployment_trigger: { metadata: { commit_hash: "not-a-commit" } },
+  }]);
+  assert.equal(result[0]?.commitSha, null);
 });

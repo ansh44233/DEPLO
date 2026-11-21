@@ -7,6 +7,7 @@ export type CloudflareDeployment = {
   createdAt: string | null;
   branch: string | null;
   commitMessage: string | null;
+  commitSha: string | null;
   status: "success" | "failure" | "building" | "unknown";
 };
 
@@ -48,6 +49,8 @@ export function normalizeCloudflareDeployments(value: unknown): CloudflareDeploy
     const stage = isRecord(item.latest_stage) ? item.latest_stage : {};
     const branch = textOrNull(metadata.branch);
     const commitMessage = textOrNull(metadata.commit_message);
+    const rawCommitSha = textOrNull(metadata.commit_hash);
+    const commitSha = rawCommitSha && /^[a-f0-9]{7,64}$/i.test(rawCommitSha) ? rawCommitSha : null;
 
     return [{
       id,
@@ -56,6 +59,7 @@ export function normalizeCloudflareDeployments(value: unknown): CloudflareDeploy
       createdAt: textOrNull(item.created_on),
       branch,
       commitMessage,
+      commitSha,
       status: normalizeStatus(stage.status),
     }];
   });

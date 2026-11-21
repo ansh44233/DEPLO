@@ -107,6 +107,7 @@ This is a static publishing flow, not a build system. It does not run user-provi
 
 - `GET /api/deploy/history?projectId={projectId}` returns the latest Cloudflare Pages deployments for the account-owned project's dedicated branch.
 - `GET /api/projects/{projectId}/deployments/{deploymentId}/logs` verifies project ownership and deployment-branch membership before retrieving provider logs. The response is no-store and capped to the latest 300 sanitized log lines.
+- Deployment history includes the source commit hash when Cloudflare provides a valid Git commit SHA, alongside the commit message, branch, status, timestamp, and deployment ID.
 - The dashboard provides a deployment-log viewer for each listed deployment.
 - `POST /api/projects/{projectId}/deployments/{deploymentId}/rollback` is owner-scoped and only permits successful **production** deployments belonging to the project.
 
