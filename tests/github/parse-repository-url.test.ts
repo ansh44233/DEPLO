@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePublicGitHubUrl } from "../lib/github/parse-repository-url";
+import { parsePublicGitHubUrl } from "../../lib/github/parse-repository-url";
 
 test("accepts a canonical public GitHub repository URL", () => {
   assert.deepEqual(
