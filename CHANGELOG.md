@@ -5,6 +5,8 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Owner-scoped project rename API and dashboard settings control; display names can be updated without changing deployment slugs or hosted URLs.
+- Tests for owner-filtered project renames and rejection of projects belonging to other accounts.
 - Deployment history now includes validated source commit hashes from Cloudflare metadata, displayed as short commit references alongside deployment IDs.
 - GitHub App installation foundation with signed-in account binding, short-lived state validation, app-installation verification, and server-only installation-token minting using read-only repository permissions.
 - GitHub App installation migration, setup documentation, and dashboard entry point for connecting private-repository deployment access.
