@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projects";
-import { readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
+import { readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { getCloudflarePagesDeploymentLogs, listCloudflarePagesDeployments } from "@/lib/deploy/cloudflare-history";
 import { getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
   if (!project) return errorResponse("Project not found in your account.", 404);
 
-  const config = readCloudflarePagesConfig(process.env);
+  const config = readCloudflarePagesCredentials(process.env);
   if (!config) return errorResponse("Cloudflare Pages is not configured.", 503);
 
   let pagesTarget;
