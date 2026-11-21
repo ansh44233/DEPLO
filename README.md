@@ -6,7 +6,7 @@ DEPLO is a developer-focused deployment platform concept. It aims to make shippi
 
 ## Project status
 
-Early development. Public GitHub repository inspection and an authenticated local upload-storage endpoint are implemented. Per-user authentication, object storage, ZIP extraction, builds, deployment providers, and production infrastructure are not yet configured.
+Early development. Public GitHub repository inspection and an authenticated local upload-storage endpoint are implemented. Per-user authentication, object storage, builds, deployment providers, and production infrastructure are not yet configured.
 
 ## Current GitHub import preview
 
@@ -39,7 +39,7 @@ curl -X POST http://localhost:3000/api/uploads \
   -F "file=@index.html"
 ```
 
-This local filesystem adapter requires persistent disk and a Node.js runtime. It is not suitable for ephemeral serverless filesystems. The upload token is a shared server-side gate, not per-user authentication; do not expose it in browser code. Project ownership, account authentication, quotas, cleanup, object storage, ZIP parsing/extraction, builds, and deployments are not implemented yet.
+This local filesystem adapter requires persistent disk and a Node.js runtime. It is not suitable for ephemeral serverless filesystems. The upload token is a shared server-side gate, not per-user authentication; do not expose it in browser code. Project ownership, account authentication, quotas, cleanup, object storage, build execution, and deployments are not implemented yet.
 
 ## Upload preflight (early milestone)
 
@@ -48,11 +48,22 @@ The browser checks selected ZIP and standalone HTML files before upload:
 - HTML documents: `.html`/`.htm` extension, complete-document marker, and a 2 MB maximum.
 - Invalid selections are rejected with an inline message.
 
-Client-side checks improve feedback, but the server independently validates every upload. ZIP contents still require archive inspection and safe extraction before production use.
+Client-side checks improve feedback, but the server independently validates every upload. ZIP contents are stored privately and can be extracted through an authenticated endpoint with path, entry-count, expanded-size, compression-ratio, and symlink checks. Extraction output remains private; it is not built or deployed.
+
+## ZIP extraction endpoint
+
+After uploading a ZIP and receiving its `uploadId`, extract it into a private per-upload directory:
+
+```bash
+curl -X POST "http://localhost:3000/api/uploads/<upload-id>/extract" \\
+  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN"
+```
+
+The endpoint rejects unsafe paths, duplicate paths, symbolic links and special files, oversized archives, and excessive compression ratios. It streams entries to disk and enforces the actual expanded-byte limit. Extracted files are not publicly served and are not executed.
 
 ## Upload archive security
 
-The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork only; ZIP parsing, extraction, build execution, and deployment are not implemented yet.
+The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork for the extraction pipeline. Build execution and deployment are not implemented yet.
 
 ## Planned capabilities
 
