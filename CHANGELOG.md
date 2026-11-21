@@ -5,6 +5,7 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Read-only Cloudflare Pages deployment history API with sanitized deployment records and no-store responses.
 - Dashboard provider-readiness indicator connected to the no-store deployment status endpoint.
 - Public GitHub repository deployment endpoint: downloads a selected branch, safely extracts its archive, validates static assets, and publishes through Cloudflare Pages.
 - Input validation tests for Git branch names and deployment slugs.
