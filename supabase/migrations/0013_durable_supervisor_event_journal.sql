@@ -15,7 +15,7 @@ create table if not exists public.build_job_supervisor_events (
   sequence integer not null check (sequence > 0),
   event_id text not null check (event_id ~ '^[a-zA-Z0-9_-]{8,128}$'),
   event text not null check (event in ('prepare', 'start', 'started', 'stop', 'succeed', 'fail', 'cancel')),
-  occurred_at text not null check (occurred_at ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'),
+  occurred_at text not null check (occurred_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'),
   from_state text not null check (from_state in (
     'queued', 'preparing', 'starting', 'running', 'stopping',
     'succeeded', 'failed', 'cancelled'
@@ -78,7 +78,7 @@ begin
      or p_event_id is null or p_event_id !~ '^[a-zA-Z0-9_-]{8,128}$'
      or p_event not in ('prepare', 'start', 'started', 'stop', 'succeed', 'fail', 'cancel')
      or p_occurred_at is null
-     or p_occurred_at !~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
+     or p_occurred_at !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
      or p_expected_sequence is null or p_expected_sequence < 0
      or p_expected_state is null or p_next_state is null
      or p_evidence is null or jsonb_typeof(p_evidence) <> 'object' then
