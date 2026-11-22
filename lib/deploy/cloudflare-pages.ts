@@ -7,6 +7,10 @@ export type CloudflarePagesCredentials = {
   apiToken: string;
 };
 
+export function cloudflarePagesDeploymentFailure(): Error {
+  return new Error("Cloudflare Pages deployment failed. Check the server logs for details.");
+}
+
 export type CloudflarePagesConfig = CloudflarePagesCredentials & {
   projectName: string;
 };
@@ -63,8 +67,12 @@ export async function deployStaticDirectory(
 ): Promise<{ url: string; output: string }> {
   const args = buildPagesDeployArgs(directory, config.projectName, branch);
   const cliPath = resolve(process.cwd(), "node_modules", "wrangler", "bin", "wrangler.js");
-  await access(cliPath);
-  await access(resolve(directory));
+  try {
+    await access(cliPath);
+    await access(resolve(directory));
+  } catch {
+    throw cloudflarePagesDeploymentFailure();
+  }
 
   const output = await new Promise<string>((resolveOutput, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
@@ -94,7 +102,7 @@ export async function deployStaticDirectory(
     child.stderr.on("data", append);
     child.on("error", (error) => {
       clearTimeout(timeout);
-      reject(error);
+      reject(cloudflarePagesDeploymentFailure());
     });
     child.on("close", (code) => {
       clearTimeout(timeout);
@@ -103,7 +111,7 @@ export async function deployStaticDirectory(
         return;
       }
       if (code !== 0) {
-        reject(new Error(`Cloudflare Pages deployment failed: ${combined.slice(-4_000)}`));
+        reject(cloudflarePagesDeploymentFailure());
         return;
       }
       resolveOutput(combined);
