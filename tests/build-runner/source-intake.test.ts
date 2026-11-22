@@ -47,6 +47,22 @@ test("health endpoint reports runner readiness without enabling builds", async t
   assert.deepEqual(await response.json(), { ok: true, service: "deplo-build-runner", buildsEnabled: false });
 });
 
+test("operator diagnostics are authenticated and never imply sandbox readiness", async t => {
+  const { base } = await setup(t);
+  const denied = await fetch(base + "/v1/diagnostics");
+  assert.equal(denied.status, 401);
+  const response = await fetch(base + "/v1/diagnostics", { headers: { Authorization: "Bearer " + token } });
+  assert.equal(response.status, 200);
+  const result = await response.json() as { runtime: { platform: string; architecture: string; nodeMajor: number }; storage: { sourceDirectoryConfigured: boolean; workspaceDirectoryConfigured: boolean }; execution: { backendConfigured: boolean; resourceLimitsEnforced: boolean; networkEgressDenied: boolean; buildsEnabled: boolean }; blockers: string[] };
+  assert.equal(result.runtime.platform, process.platform);
+  assert.equal(result.runtime.architecture, process.arch);
+  assert.equal(result.runtime.nodeMajor, Number(process.versions.node.split(".")[0]));
+  assert.equal(result.storage.sourceDirectoryConfigured, true);
+  assert.equal(result.storage.workspaceDirectoryConfigured, false);
+  assert.deepEqual(result.execution, { backendConfigured: false, resourceLimitsEnforced: false, networkEgressDenied: false, buildsEnabled: false });
+  assert.deepEqual(result.blockers, ["sandbox_not_configured"]);
+});
+
 test("source intake requires authentication and stores immutable archive bytes", async t => {
   const archive = await makeZip();
   const { base, dir } = await setup(t);

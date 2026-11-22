@@ -186,6 +186,16 @@ export function createRunnerServer(config: RunnerConfig) {
       if (req.method === "GET" && path === "/healthz") {
         return json(res, 200, { ok: true, service: "deplo-build-runner", buildsEnabled: false });
       }
+      if (req.method === "GET" && path === "/v1/diagnostics") {
+        if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
+        return json(res, 200, {
+          service: "deplo-build-runner",
+          runtime: { platform: process.platform, architecture: process.arch, nodeMajor: Number(process.versions.node.split(".")[0]) },
+          storage: { sourceDirectoryConfigured: true, workspaceDirectoryConfigured: Boolean(config.workspaceDir) },
+          execution: { backendConfigured: false, resourceLimitsEnforced: false, networkEgressDenied: false, buildsEnabled: false },
+          blockers: ["sandbox_not_configured"],
+        });
+      }
       if (req.method === "POST" && path === "/v1/sources") {
         if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
         const key = req.headers["idempotency-key"];
