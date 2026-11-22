@@ -21,6 +21,13 @@ that any security control is active.
 
 Terminal states cannot transition again. Invalid transitions fail closed.
 
+## Runtime input validation
+
+The transition function validates state and event values at runtime and rejects
+unknown evidence keys, non-boolean evidence values, arrays, null, and non-plain
+objects. This prevents accidental bypasses through untyped callers. It does not
+authenticate the caller or establish that evidence is truthful.
+
 ## Trust boundary
 
 Evidence values are assertions supplied by a future trusted supervisor. The
