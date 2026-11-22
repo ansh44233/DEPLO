@@ -15,6 +15,11 @@ export type CloudflarePagesConfig = CloudflarePagesCredentials & {
   projectName: string;
 };
 
+type DeploymentDependencies = {
+  spawnProcess?: typeof spawn;
+  accessPath?: typeof access;
+};
+
 export function readCloudflarePagesCredentials(
   env: Record<string, string | undefined> = process.env,
 ): CloudflarePagesCredentials | null {
@@ -64,27 +69,42 @@ export async function deployStaticDirectory(
   directory: string,
   branch: string,
   config: CloudflarePagesConfig,
+  dependencies: DeploymentDependencies = {},
 ): Promise<{ url: string; output: string }> {
   const args = buildPagesDeployArgs(directory, config.projectName, branch);
   const cliPath = resolve(process.cwd(), "node_modules", "wrangler", "bin", "wrangler.js");
+  const accessPath = dependencies.accessPath ?? access;
+  const spawnProcess = dependencies.spawnProcess ?? spawn;
   try {
-    await access(cliPath);
-    await access(resolve(directory));
+    await accessPath(cliPath);
+    await accessPath(resolve(directory));
   } catch {
     throw cloudflarePagesDeploymentFailure();
   }
 
   const output = await new Promise<string>((resolveOutput, reject) => {
-    const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        CLOUDFLARE_ACCOUNT_ID: config.accountId,
-        CLOUDFLARE_API_TOKEN: config.apiToken,
-        CI: "1",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawnProcess(process.execPath, [cliPath, ...args], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          CLOUDFLARE_ACCOUNT_ID: config.accountId,
+          CLOUDFLARE_API_TOKEN: config.apiToken,
+          CI: "1",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch {
+      reject(cloudflarePagesDeploymentFailure());
+      return;
+    }
+
+    if (!child.stdout || !child.stderr) {
+      child.kill("SIGTERM");
+      reject(cloudflarePagesDeploymentFailure());
+      return;
+    }
 
     let combined = "";
     let timedOut = false;
@@ -100,7 +120,7 @@ export async function deployStaticDirectory(
 
     child.stdout.on("data", append);
     child.stderr.on("data", append);
-    child.on("error", (error) => {
+    child.on("error", () => {
       clearTimeout(timeout);
       reject(cloudflarePagesDeploymentFailure());
     });
