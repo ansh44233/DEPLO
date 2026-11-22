@@ -48,23 +48,25 @@ test("health endpoint reports runner readiness without enabling builds", async t
 });
 
 test("operator diagnostics are authenticated and never imply sandbox readiness", async t => {
-  const { base } = await setup(t);
+  const { base, dir } = await setup(t);
   const denied = await fetch(base + "/v1/diagnostics");
   assert.equal(denied.status, 401);
   const response = await fetch(base + "/v1/diagnostics", { headers: { Authorization: "Bearer " + token } });
   assert.equal(response.status, 200);
-  const result = await response.json() as { runtime: { platform: string; architecture: string; nodeMajor: number }; storage: { sourceDirectoryConfigured: boolean; workspaceDirectoryConfigured: boolean }; execution: { backendConfigured: boolean; resourceLimitsEnforced: boolean; networkEgressDenied: boolean; buildsEnabled: boolean }; hostPreflight: { kvmDeviceAvailable: boolean; firecrackerBinaryAvailable: boolean; kernelImageAvailable: boolean; initrdAvailable: boolean; cgroupV2RequiredControllersAvailable: boolean; backendImplemented: boolean; buildsEnabled: boolean; blockers: string[] }; blockers: string[] };
+  const result = await response.json() as { runtime: { platform: string; architecture: string; nodeMajor: number }; storage: { sourceDirectoryConfigured: boolean; workspaceDirectoryConfigured: boolean }; execution: { backendConfigured: boolean; resourceLimitsEnforced: boolean; networkEgressDenied: boolean; buildsEnabled: boolean }; hostPreflight: { kvmDeviceAvailable: boolean; firecrackerBinaryAvailable: boolean; jailerBinaryAvailable: boolean; kernelImageAvailable: boolean; initrdAvailable: boolean; cgroupV2RequiredControllersAvailable: boolean; backendImplemented: boolean; buildsEnabled: boolean; blockers: string[] }; blockers: string[] };
   assert.equal(result.runtime.platform, process.platform);
   assert.equal(result.runtime.architecture, process.arch);
   assert.equal(result.runtime.nodeMajor, Number(process.versions.node.split(".")[0]));
   assert.equal(result.storage.sourceDirectoryConfigured, true);
   assert.equal(result.storage.workspaceDirectoryConfigured, false);
   assert.deepEqual(result.execution, { backendConfigured: false, resourceLimitsEnforced: false, networkEgressDenied: false, buildsEnabled: false });
+  assert.equal(result.hostPreflight.jailerBinaryAvailable, false);
   assert.equal(result.hostPreflight.backendImplemented, false);
   assert.equal(result.hostPreflight.buildsEnabled, false);
   assert.ok(result.hostPreflight.blockers.includes("firecracker_execution_backend_not_implemented"));
   assert.ok(result.blockers.includes("sandbox_not_configured"));
   assert.equal(JSON.stringify(result).includes(token), false);
+  assert.equal(JSON.stringify(result).includes(dir), false, "diagnostics must not expose private filesystem paths");
 });
 
 test("source intake requires authentication and stores immutable archive bytes", async t => {
