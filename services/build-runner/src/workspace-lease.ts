@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { acquireWorkspaceOperationLock } from "./workspace-operation-lock";
 
 const LEASE_FILE = ".deplo-workspace-lease.json";
 const MAX_LEASE_BYTES = 2048;
@@ -51,6 +52,8 @@ export async function createWorkspaceLease(workspaceRoot: string, now = Date.now
     leaseId,
     heartbeat(at = Date.now()): Promise<void> {
       const operation = heartbeatQueue.then(async () => {
+        const releaseLock = await acquireWorkspaceOperationLock(workspaceRoot);
+        try {
         if (!Number.isFinite(at) || at < lease.createdAt) throw new Error("invalid_workspace_heartbeat_time");
         const currentRoot = await lstat(workspaceRoot);
         if (!currentRoot.isDirectory() || currentRoot.isSymbolicLink()) {
@@ -74,6 +77,9 @@ export async function createWorkspaceLease(workspaceRoot: string, now = Date.now
           await rename(temporary, path);
         } finally {
           await rm(temporary, { force: true }).catch(() => undefined);
+        }
+        } finally {
+          await releaseLock();
         }
       });
       heartbeatQueue = operation.catch(() => undefined);

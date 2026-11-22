@@ -124,3 +124,52 @@ test("a stale lease handle cannot refresh a marker owned by another lease", asyn
     await assert.rejects(lease.heartbeat(12 * HOUR), /workspace_lease_ownership_lost/);
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
+
+
+test("heartbeat refuses to race an operation lock held by another process", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "deplo-lease-lock-"));
+  try {
+    const root = join(parent, "job-locked");
+    await mkdir(root);
+    const lease = await createWorkspaceLease(root, 10 * HOUR);
+    const lockPath = join(root, ".deplo-workspace-operation-lock");
+    await mkdir(lockPath, { mode: 0o700 });
+    await assert.rejects(lease.heartbeat(11 * HOUR), (error: NodeJS.ErrnoException) => error.code === "EEXIST");
+    await rm(lockPath, { recursive: true, force: true });
+    await lease.heartbeat(12 * HOUR);
+    const state = await inspectWorkspaceLease(root, 12 * HOUR, 24 * HOUR);
+    assert.equal(state.state, "active");
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test("workspace cleanup refuses to race an operation lock held by another process", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "deplo-cleanup-lock-"));
+  try {
+    const manager = await createWorkspaceManager(join(parent, "workspaces"));
+    const workspace = await manager.create();
+    const lockPath = join(workspace.root, ".deplo-workspace-operation-lock");
+    await mkdir(lockPath, { mode: 0o700 });
+    await assert.rejects(workspace.cleanup(), (error: NodeJS.ErrnoException) => error.code === "EEXIST");
+    await rm(lockPath, { recursive: true, force: true });
+    await workspace.cleanup();
+    assert.equal(manager.activeCount(), 0);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test("janitor skips a workspace while another process holds its operation lock", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "deplo-janitor-lock-"));
+  const root = join(parent, "workspaces");
+  const now = 50 * HOUR;
+  try {
+    await mkdir(root);
+    const workspaceRoot = join(root, "job-locked");
+    await mkdir(workspaceRoot);
+    await createWorkspaceLease(workspaceRoot, now - 30 * HOUR);
+    await utimes(workspaceRoot, new Date(now - 30 * HOUR), new Date(now - 30 * HOUR));
+    await mkdir(join(workspaceRoot, ".deplo-workspace-operation-lock"), { mode: 0o700 });
+    const result = await cleanupStaleWorkspaces(root, { now, retentionMs: 24 * HOUR });
+    assert.equal(result.workspacesRemoved, 0);
+    assert.equal(result.skipped, 1);
+    assert.equal((await readdir(root)).includes("job-locked"), true);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});

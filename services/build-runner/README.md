@@ -21,7 +21,7 @@ The source directory must be on a private persistent filesystem with access rest
 
 ## Maintenance
 
-An authenticated `POST /v1/maintenance/cleanup` removes source archives older than seven days and matching idempotency records (maximum 100 per call). If `DEPLO_RUNNER_WORKSPACE_DIR` is configured, it also removes up to 100 stale `job-*` workspace directories older than 24 hours. Symlink roots and entries are rejected or skipped, unrelated files are untouched, and cleanup returns removed counts and bytes freed. Schedule this endpoint periodically from trusted infrastructure. The workspace retention must remain substantially longer than the maximum enforced build wall-clock duration; do not run untrusted builds without a real supervisor and sandbox.
+An authenticated `POST /v1/maintenance/cleanup` removes source archives older than seven days and matching idempotency records (maximum 100 per call). If `DEPLO_RUNNER_WORKSPACE_DIR` is configured, it also removes up to 100 stale `job-*` workspace directories older than 24 hours. Symlink roots and entries are rejected or skipped, unrelated files are untouched, and cleanup returns removed counts and bytes freed. Per-workspace atomic operation locks coordinate janitor deletion with heartbeat and managed cleanup on the same filesystem. Stale locks left by crashed processes are skipped for manual inspection rather than force-reclaimed. Schedule this endpoint periodically from trusted infrastructure. The workspace retention must remain substantially longer than the maximum enforced build wall-clock duration; do not run untrusted builds without a real supervisor and sandbox.
 
 ## Deliberately disabled
 
