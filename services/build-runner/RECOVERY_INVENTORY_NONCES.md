@@ -18,10 +18,10 @@ unavailable. Invalid signatures/identities do not consume a nonce.
 
 Migration `0012_recovery_inventory_nonce_retention.sql` adds a service-role-only
 pruning RPC. It deletes at most the requested batch size (1–1,000; default
-200) and only rows whose expiry or consumption timestamp is older than seven
-days. Row locks use `SKIP LOCKED`, so concurrent maintenance calls do not
-select the same rows. A trusted scheduler may invoke this RPC periodically;
-the function does not run automatically.
+200) and retains each row for at least seven days after consumption, or seven
+days after expiry when it was never consumed. Row locks use `SKIP LOCKED`, so
+concurrent maintenance calls do not select the same rows. A trusted scheduler
+may invoke this RPC periodically; the function does not run automatically.
 
 The seven-day window is a fixed minimum retention period for operational
 investigation. Adjust it only through a reviewed migration after deciding the
