@@ -126,7 +126,8 @@ $$;
 -- The database records the acknowledgement; it cannot verify the host action.
 create or replace function public.advance_deplo_build_recovery(
   p_attempt_id uuid,
-  p_expected_action_index integer
+  p_expected_action_index integer,
+  p_claimed_at timestamptz
 )
 returns setof public.build_job_recovery_attempts
 language plpgsql
@@ -143,7 +144,8 @@ begin
 
   if not found
      or current_row.status <> 'reconciling'
-     or current_row.claimed_at is null
+     or p_claimed_at is null
+     or current_row.claimed_at is distinct from p_claimed_at
      or current_row.claimed_at < now() - interval '2 minutes'
      or current_row.next_action_index <> p_expected_action_index
      or p_expected_action_index >= jsonb_array_length(current_row.actions) then
@@ -170,6 +172,7 @@ $$;
 
 create or replace function public.block_deplo_build_recovery(
   p_attempt_id uuid,
+  p_claimed_at timestamptz,
   p_error_code text
 )
 returns setof public.build_job_recovery_attempts
@@ -185,7 +188,11 @@ begin
 
   update public.build_job_recovery_attempts
      set status = 'blocked', error_code = safe_error, claimed_at = null, updated_at = now()
-   where id = p_attempt_id and status = 'reconciling'
+   where id = p_attempt_id
+     and status = 'reconciling'
+     and p_claimed_at is not null
+     and claimed_at = p_claimed_at
+     and claimed_at >= now() - interval '2 minutes'
    returning * into current_row;
 
   if not found then raise exception 'Recovery attempt is not active'; end if;
@@ -195,12 +202,12 @@ $$;
 
 revoke all on function public.begin_deplo_build_recovery(uuid, text, integer, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.claim_next_deplo_build_recovery() from public, anon, authenticated;
-revoke all on function public.advance_deplo_build_recovery(uuid, integer) from public, anon, authenticated;
-revoke all on function public.block_deplo_build_recovery(uuid, text) from public, anon, authenticated;
+revoke all on function public.advance_deplo_build_recovery(uuid, integer, timestamptz) from public, anon, authenticated;
+revoke all on function public.block_deplo_build_recovery(uuid, timestamptz, text) from public, anon, authenticated;
 grant execute on function public.begin_deplo_build_recovery(uuid, text, integer, text, text, jsonb) to service_role;
 grant execute on function public.claim_next_deplo_build_recovery() to service_role;
-grant execute on function public.advance_deplo_build_recovery(uuid, integer) to service_role;
-grant execute on function public.block_deplo_build_recovery(uuid, text) to service_role;
+grant execute on function public.advance_deplo_build_recovery(uuid, integer, timestamptz) to service_role;
+grant execute on function public.block_deplo_build_recovery(uuid, timestamptz, text) to service_role;
 
      or p_journal_sequence is null or p_journal_sequence < 0
      or p_observed_state is null
