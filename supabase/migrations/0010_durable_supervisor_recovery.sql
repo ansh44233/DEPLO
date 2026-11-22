@@ -57,7 +57,19 @@ declare
   existing public.build_job_recovery_attempts;
   action_item jsonb;
 begin
-  if p_recovery_key is null or p_recovery_key !~ '^[a-zA-Z0-9_-]{8,128}
+  if p_recovery_key is null or p_recovery_key !~ '^[a-zA-Z0-9_-]{8,128}$'
+     or p_journal_sequence is null or p_journal_sequence < 0
+     or p_observed_state is null
+     or p_observed_state not in ('queued', 'preparing', 'starting', 'running', 'stopping', 'succeeded', 'failed', 'cancelled')
+     or p_disposition is null
+     or p_disposition not in ('requeue_after_reconciliation', 'fail_after_reconciliation', 'preserve_terminal_state')
+     or p_actions is null or jsonb_typeof(p_actions) <> 'array' then
+    raise exception 'Invalid recovery plan';
+  end if;
+
+  if jsonb_array_length(p_actions) not between 1 and 5 then
+    raise exception 'Invalid recovery plan';
+  end if;
 
   for action_item in select value from jsonb_array_elements(p_actions)
   loop
