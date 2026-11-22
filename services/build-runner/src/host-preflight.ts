@@ -20,20 +20,25 @@ async function inspectPath(path: string | undefined, kind: "file" | "executable"
 export async function inspectSandboxHost(options: SandboxHostPreflightOptions = {}) {
   const platform = options.platform ?? process.platform;
   const linux = platform === "linux";
-  const [kvmDeviceAvailable, firecrackerBinaryAvailable, kernelImageAvailable, initrdAvailable, controllers] = linux
-    ? await Promise.all([
-        inspectPath(options.kvmDevicePath ?? process.env.DEPLO_FIRECRACKER_KVM_PATH ?? "/dev/kvm", "device"),
-        inspectPath(options.firecrackerBinaryPath ?? process.env.DEPLO_FIRECRACKER_BIN, "executable"),
-        inspectPath(options.kernelImagePath ?? process.env.DEPLO_FIRECRACKER_KERNEL, "file"),
-        inspectPath(options.initrdPath ?? process.env.DEPLO_FIRECRACKER_INITRD, "file"),
-        (async () => {
-          const path = options.cgroupControllersPath ?? "/sys/fs/cgroup/cgroup.controllers";
-          if (!isAbsolute(path)) return [];
-          try { return (await readFile(path, "utf8")).trim().split(/\\s+/).filter(Boolean); }
-          catch { return []; }
-        })(),
-      ])
-    : [false, false, false, false, [] as string[]];
+  let kvmDeviceAvailable = false;
+  let firecrackerBinaryAvailable = false;
+  let kernelImageAvailable = false;
+  let initrdAvailable = false;
+  let controllers: string[] = [];
+  if (linux) {
+    [kvmDeviceAvailable, firecrackerBinaryAvailable, kernelImageAvailable, initrdAvailable, controllers] = await Promise.all([
+      inspectPath(options.kvmDevicePath ?? process.env.DEPLO_FIRECRACKER_KVM_PATH ?? "/dev/kvm", "device"),
+      inspectPath(options.firecrackerBinaryPath ?? process.env.DEPLO_FIRECRACKER_BIN, "executable"),
+      inspectPath(options.kernelImagePath ?? process.env.DEPLO_FIRECRACKER_KERNEL, "file"),
+      inspectPath(options.initrdPath ?? process.env.DEPLO_FIRECRACKER_INITRD, "file"),
+      (async () => {
+        const path = options.cgroupControllersPath ?? "/sys/fs/cgroup/cgroup.controllers";
+        if (!isAbsolute(path)) return [];
+        try { return (await readFile(path, "utf8")).trim().split(/\s+/).filter(Boolean); }
+        catch { return []; }
+      })(),
+    ]);
+  }
   const cgroupV2RequiredControllersAvailable = ["cpu", "memory", "pids"].every(name => controllers.includes(name));
   const blockers: string[] = [];
   if (!linux) blockers.push("linux_host_required");

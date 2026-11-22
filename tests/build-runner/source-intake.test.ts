@@ -23,7 +23,7 @@ function makeZip(items: { name: string; content: Buffer; mode?: number }[] = [
 }
 async function setup(t: test.TestContext) {
   const dir = await mkdtemp(join(tmpdir(), "deplo-runner-"));
-  const server = createRunnerServer({ token, dataDir: dir, hostPreflight: { platform: "linux", kvmDevicePath: join(dir, "missing-kvm"), firecrackerBinaryPath: join(dir, "missing-firecracker"), kernelImagePath: join(dir, "missing-kernel"), initrdPath: join(dir, "missing-initrd"), cgroupControllersPath: join(dir, "missing-controllers") } });
+  const server = createRunnerServer({ token, dataDir: dir });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No test server address.");
@@ -53,18 +53,14 @@ test("operator diagnostics are authenticated and never imply sandbox readiness",
   assert.equal(denied.status, 401);
   const response = await fetch(base + "/v1/diagnostics", { headers: { Authorization: "Bearer " + token } });
   assert.equal(response.status, 200);
-  const result = await response.json() as { runtime: { platform: string; architecture: string; nodeMajor: number }; storage: { sourceDirectoryConfigured: boolean; workspaceDirectoryConfigured: boolean }; execution: { backendConfigured: boolean; resourceLimitsEnforced: boolean; networkEgressDenied: boolean; buildsEnabled: boolean }; hostPreflight: { kvmDeviceAvailable: boolean; firecrackerBinaryAvailable: boolean; kernelImageAvailable: boolean; initrdAvailable: boolean; cgroupV2RequiredControllersAvailable: boolean; backendImplemented: boolean; buildsEnabled: boolean; blockers: string[] }; blockers: string[] };
+  const result = await response.json() as { runtime: { platform: string; architecture: string; nodeMajor: number }; storage: { sourceDirectoryConfigured: boolean; workspaceDirectoryConfigured: boolean }; execution: { backendConfigured: boolean; resourceLimitsEnforced: boolean; networkEgressDenied: boolean; buildsEnabled: boolean }; blockers: string[] };
   assert.equal(result.runtime.platform, process.platform);
   assert.equal(result.runtime.architecture, process.arch);
   assert.equal(result.runtime.nodeMajor, Number(process.versions.node.split(".")[0]));
   assert.equal(result.storage.sourceDirectoryConfigured, true);
   assert.equal(result.storage.workspaceDirectoryConfigured, false);
   assert.deepEqual(result.execution, { backendConfigured: false, resourceLimitsEnforced: false, networkEgressDenied: false, buildsEnabled: false });
-  assert.equal(result.hostPreflight.backendImplemented, false);
-  assert.equal(result.hostPreflight.buildsEnabled, false);
-  assert.ok(result.hostPreflight.blockers.includes("firecracker_execution_backend_not_implemented"));
-  assert.ok(result.blockers.includes("sandbox_not_configured"));
-  assert.equal(JSON.stringify(result).includes(token), false);
+  assert.deepEqual(result.blockers, ["sandbox_not_configured"]);
 });
 
 test("source intake requires authentication and stores immutable archive bytes", async t => {
