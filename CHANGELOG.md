@@ -5,6 +5,17 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Framework builds: Vite, React, Create React App and static-export Next.js repositories are built in a Vercel Sandbox microVM (clone, install, build) and the output is published to Cloudflare Pages. Works for dashboard deploys and push-to-deploy.
+- Safe tar extraction for build output (GNU long names, path confinement, size and file-count limits; links skipped).
+- Dashboard: Ctrl/Cmd+K command menu, live thumbnails on project cards, deploy timer and status strip, build-log viewer with copy, Redeploy, and a dismissible open-source card.
+- New README with architecture diagram, feature overview and one-click Vercel deploy; the previous README moved to docs/REFERENCE.md.
+
+### Fixed
+- Vite projects (which have a root index.html) were published unbuilt; they are now built first.
+- Deploy errors returned as non-JSON (for example a gateway timeout) no longer show a parse error.
+- `.env.example` now lists every variable the app reads, grouped by purpose; the unused `NEXT_PUBLIC_APP_URL` was removed.
+
+### Added
 - Vercel hosting support: `vercel.json` with daily cron backstops for the webhook and build workers, and a step-by-step guide in `docs/VERCEL.md`.
 - Pure TypeScript BLAKE3 implementation for Cloudflare Pages asset keys, verified against published test vectors.
 - Worker GET handlers for Vercel Cron (`CRON_SECRET`) that drain each queue within a time budget.

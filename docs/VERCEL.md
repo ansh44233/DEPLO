@@ -12,7 +12,7 @@ DEPLO's dashboard and API are a standard Next.js app and run on Vercel Functions
 | Background workers | Push webhooks and new build jobs trigger their worker right after the response (`after()` from `next/server`). While an owner has an active build open in the dashboard, each 10-second refresh advances the build worker by one step. `vercel.json` adds daily Vercel Cron runs as a backstop that drains each queue. |
 | Long requests | Worker and deploy routes declare `maxDuration = 300`, which Vercel allows with Fluid compute (the default for new projects). |
 
-Not hosted on Vercel: the isolated **build runner** (`services/build-runner`) needs Firecracker and a dedicated host. Static GitHub, ZIP and HTML deployments work without it; framework builds need it.
+**Framework builds** (Vite, React, Create React App, static-export Next.js) run in [Vercel Sandbox](https://vercel.com/docs/sandbox). On Vercel the SDK authenticates automatically with OIDC, so nothing extra is needed; the Hobby plan includes a free monthly quota (5 active-CPU hours). Deploy routes allow up to 300 seconds, which fits typical small and medium builds. The older self-hosted Firecracker runner in `services/build-runner` remains optional.
 
 ## 1. Prepare external services
 

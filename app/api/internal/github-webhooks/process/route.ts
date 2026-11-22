@@ -10,6 +10,7 @@ import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deplo
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
 import { getGitHubArchiveHeaders } from "@/lib/github/webhook-archive";
+import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -207,13 +208,33 @@ async function processNextDelivery(): Promise<NextResponse> {
         await extractZipSafely(archivePath, extractedRoot);
         const roots = await readdir(extractedRoot, { withFileTypes: true });
         const siteRoot = roots.length === 1 && roots[0].isDirectory() ? join(extractedRoot, roots[0].name) : extractedRoot;
-        const index = await stat(join(siteRoot, "index.html")).catch(() => null);
+        const decision = await decideSite(siteRoot);
+        if (decision.kind === "unsupported") throw new Error("site_unsupported");
+        let publishRoot = siteRoot;
+        if (decision.kind === "build") {
+          if (!sandboxBuildsAvailable()) throw new Error("build_unavailable");
+          publishRoot = join(workRoot, "output");
+          try {
+            await buildInSandbox({
+              repositoryUrl: "https://github.com/" + delivery.repository_full_name + ".git",
+              revision: delivery.commit_sha,
+              accessToken: installationToken ?? null,
+              decision,
+              hasNpmLock: await hasPackageLock(siteRoot),
+              destination: publishRoot,
+            });
+          } catch (error) {
+            if (error instanceof SandboxBuildError) throw new Error(error.code);
+            throw error;
+          }
+        }
+        const index = await stat(join(publishRoot, "index.html")).catch(() => null);
         if (!index?.isFile()) throw new Error("root_index_missing");
-        await inspectStaticDirectory(siteRoot);
+        await inspectStaticDirectory(publishRoot);
 
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
         await ensureCloudflarePagesProject(target.config, target.productionBranch);
-        const deployment = await deployStaticDirectory(siteRoot, target.productionBranch, target.config);
+        const deployment = await deployStaticDirectory(publishRoot, target.productionBranch, target.config);
         const saved = await db<Project[]>(
           endpoint(config.baseUrl, "projects", {
             select: "id",

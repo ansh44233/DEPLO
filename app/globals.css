@@ -221,6 +221,54 @@ input:not([type=file]):focus, select:focus { border-color: var(--muted); }
 .log-line time { color: var(--idle); }
 .log-line code { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* Command palette */
+.kbd-trigger { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 13px; }
+.kbd-trigger:hover { color: var(--fg); border-color: var(--muted); }
+kbd { font-family: var(--font-mono), monospace; font-size: 11px; padding: 2px 6px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface-2); color: var(--muted); }
+.overlay-top { place-items: start center; padding-top: 14vh; }
+.palette { width: min(600px, 100%); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 24px 80px rgba(0,0,0,.8); overflow: hidden; animation: rise .14s ease-out; }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.palette-input input { flex: 1; height: 52px; border: 0; background: none; font-size: 15px; padding: 0; }
+.palette-input input:focus { border: 0; }
+.palette-list { max-height: 50vh; overflow: auto; padding: 6px; }
+.palette-item { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 12px; border: 0; border-radius: 6px; background: none; text-align: left; }
+.palette-item:hover, .palette-item:focus-visible, .palette-item-first { background: var(--surface-2); }
+.palette-item .muted { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-empty { padding: 16px 12px; }
+
+/* Deploy status */
+.deploy-strip { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 24px; border: 1px solid #5a4210; background: #1c1405; border-radius: var(--radius); }
+.deploy-strip > div:not(.deploy-strip-actions) { display: grid; flex: 1; min-width: 0; }
+.deploy-strip .mono { color: var(--building); }
+.deploy-strip-ok { border-color: #1d4a30; background: #06170e; }
+.deploy-strip-error { border-color: #5c1f1b; background: #1d0806; }
+.deploy-strip-actions { display: flex; align-items: center; gap: 4px; }
+.log-line-plain { grid-template-columns: 1fr; }
+.log-cmd code { color: #8fb8ff; }
+.log-err code { color: #ffb3ad; }
+
+/* Card thumbnails */
+.project-card { padding: 0; gap: 0; overflow: hidden; }
+.project-card > :not(.thumb) { padding: 0 20px; }
+.project-card-top { padding-top: 16px !important; }
+.project-card-source { padding-top: 12px !important; }
+.project-card-foot { padding: 10px 20px 18px !important; }
+.thumb { position: relative; aspect-ratio: 16 / 8; overflow: hidden; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.thumb iframe { position: absolute; top: 0; left: 0; width: 400%; height: 400%; border: 0; transform: scale(.25); transform-origin: 0 0; pointer-events: none; background: #fff; }
+.thumb-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 40px; font-weight: 600; letter-spacing: -.04em; color: var(--border-strong); background: repeating-linear-gradient(135deg, var(--surface-2) 0 10px, var(--surface) 10px 20px); }
+
+/* Community card */
+.community { position: fixed; left: 24px; bottom: 64px; z-index: 30; width: 300px; padding: 18px; display: grid; gap: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 16px 50px rgba(0,0,0,.7); animation: rise .25s ease-out .6s both; }
+.community p { font-size: 13px; }
+.community-close { position: absolute; top: 8px; right: 8px; }
+.community-art { position: relative; height: 56px; margin: -18px -18px 6px; border-radius: 12px 12px 0 0; overflow: hidden; display: flex; align-items: center; padding-left: 18px; background: radial-gradient(120% 140% at 0% 0%, #1b1b1b 0%, var(--surface) 60%); border-bottom: 1px solid var(--border); }
+.community-trail { position: absolute; left: 56px; right: 0; top: 50%; height: 1px; background: linear-gradient(90deg, var(--fg), transparent); opacity: .35; }
+.community-actions { display: flex; gap: 8px; margin-top: 4px; }
+@media (max-width: 640px) {
+  .kbd-trigger span, .kbd-trigger kbd { display: none; }
+  .community { left: 16px; right: 16px; width: auto; bottom: 60px; }
+}
+
 /* Responsive */
 @media (max-width: 860px) {
   .production { grid-template-columns: 1fr; }
