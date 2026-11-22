@@ -100,6 +100,12 @@ export async function deployStaticDirectory(
       return;
     }
 
+    if (!child.stdout || !child.stderr) {
+      child.kill("SIGTERM");
+      reject(cloudflarePagesDeploymentFailure());
+      return;
+    }
+
     let combined = "";
     let timedOut = false;
     const timeout = setTimeout(() => {
