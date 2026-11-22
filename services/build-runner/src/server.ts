@@ -5,10 +5,11 @@ import { extractZipSafely } from "../../../lib/uploads/extract-zip";
 import { cleanupStaleWorkspaces } from "./workspace-janitor";
 import { join, isAbsolute, resolve } from "node:path";
 import { isIP } from "node:net";
+import { inspectSandboxHost, type SandboxHostPreflightOptions } from "./host-preflight";
 
 const MAX_ARCHIVE = 25 * 1024 * 1024;
 const MAX_BODY = MAX_ARCHIVE + 64 * 1024;
-type RunnerConfig = { token: string; dataDir: string; workspaceDir?: string; bindHost?: string };
+type RunnerConfig = { token: string; dataDir: string; workspaceDir?: string; bindHost?: string; hostPreflight?: SandboxHostPreflightOptions };
 
 /** Only loopback and private/link-local IPs are valid runner bind addresses. */
 export function validateRunnerBindHost(host: string): string {
@@ -188,12 +189,14 @@ export function createRunnerServer(config: RunnerConfig) {
       }
       if (req.method === "GET" && path === "/v1/diagnostics") {
         if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
+        const hostPreflight = await inspectSandboxHost(config.hostPreflight);
         return json(res, 200, {
           service: "deplo-build-runner",
           runtime: { platform: process.platform, architecture: process.arch, nodeMajor: Number(process.versions.node.split(".")[0]) },
           storage: { sourceDirectoryConfigured: true, workspaceDirectoryConfigured: Boolean(config.workspaceDir) },
           execution: { backendConfigured: false, resourceLimitsEnforced: false, networkEgressDenied: false, buildsEnabled: false },
-          blockers: ["sandbox_not_configured"],
+          hostPreflight,
+          blockers: ["sandbox_not_configured", ...hostPreflight.blockers],
         });
       }
       if (req.method === "POST" && path === "/v1/sources") {
