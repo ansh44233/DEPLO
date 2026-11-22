@@ -1,14 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { resolve } from "node:path";
 import {
   buildPagesDeployArgs,
   cloudflarePagesDeploymentFailure,
+  deployStaticDirectory,
   isValidPagesBranch,
   isValidPagesProjectName,
   readCloudflarePagesConfig,
   readCloudflarePagesCredentials,
 } from "../../lib/deploy/cloudflare-pages";
+
+const config = {
+  accountId: "account-123",
+  apiToken: "secret-token",
+  projectName: "deplo-sites",
+};
+
+function fakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+    kill: (signal: NodeJS.Signals) => boolean;
+  };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => true;
+  return child;
+}
+
+const allowAccess = async () => undefined;
 
 test("reads Cloudflare Pages configuration from server environment values", () => {
   assert.deepEqual(
@@ -55,7 +78,6 @@ test("builds a fixed Wrangler argument list without shell interpolation", () => 
   assert.throws(() => buildPagesDeployArgs("/tmp/site", "deplo-sites", "../main"), /branch name/);
 });
 
-
 test("reads account-level Cloudflare credentials without requiring a legacy shared project", () => {
   assert.deepEqual(readCloudflarePagesCredentials({
     CLOUDFLARE_ACCOUNT_ID: " account-123 ",
@@ -67,7 +89,6 @@ test("reads account-level Cloudflare credentials without requiring a legacy shar
   assert.equal(readCloudflarePagesCredentials({ CLOUDFLARE_ACCOUNT_ID: "account" }), null);
 });
 
-
 test("returns a stable public deployment error without including private CLI output", () => {
   const privateOutput = "Bearer secret-token /srv/deplo/private/work account=private-account";
   const error = cloudflarePagesDeploymentFailure();
@@ -75,4 +96,73 @@ test("returns a stable public deployment error without including private CLI out
   assert.equal(error.message.includes(privateOutput), false);
   assert.equal(error.message.includes("secret-token"), false);
   assert.equal(error.message.includes("/srv/deplo/private/work"), false);
+});
+
+test("redacts Wrangler process startup errors", async () => {
+  const privateDetails = "spawn failed at /srv/deplo/private/wrangler.js with token secret-token";
+  const child = fakeChild();
+  const spawnProcess = (() => {
+    process.nextTick(() => child.emit("error", new Error(privateDetails)));
+    return child;
+  }) as unknown as typeof import("node:child_process").spawn;
+
+  await assert.rejects(
+    deployStaticDirectory("/tmp/site", "site-demo", config, {
+      accessPath: allowAccess,
+      spawnProcess,
+    }),
+    (error: Error) => {
+      assert.equal(error.message, "Cloudflare Pages deployment failed. Check the server logs for details.");
+      assert.equal(error.message.includes(privateDetails), false);
+      assert.equal(error.message.includes("secret-token"), false);
+      assert.equal(error.message.includes("/srv/deplo/private"), false);
+      return true;
+    },
+  );
+});
+
+test("redacts Wrangler non-zero exit output", async () => {
+  const privateDetails = "account private-account token secret-token path /srv/deplo/private/site";
+  const child = fakeChild();
+  const spawnProcess = (() => {
+    process.nextTick(() => {
+      child.stdout.write(privateDetails);
+      child.stderr.write("Wrangler failed: " + privateDetails);
+      child.emit("close", 1);
+    });
+    return child;
+  }) as unknown as typeof import("node:child_process").spawn;
+
+  await assert.rejects(
+    deployStaticDirectory("/tmp/site", "site-demo", config, {
+      accessPath: allowAccess,
+      spawnProcess,
+    }),
+    (error: Error) => {
+      assert.equal(error.message, "Cloudflare Pages deployment failed. Check the server logs for details.");
+      assert.equal(error.message.includes("secret-token"), false);
+      assert.equal(error.message.includes("private-account"), false);
+      assert.equal(error.message.includes("/srv/deplo/private/site"), false);
+      return true;
+    },
+  );
+});
+
+test("redacts synchronous Wrangler spawn exceptions", async () => {
+  const spawnProcess = (() => {
+    throw new Error("private host /srv/deplo/private and secret-token");
+  }) as unknown as typeof import("node:child_process").spawn;
+
+  await assert.rejects(
+    deployStaticDirectory("/tmp/site", "site-demo", config, {
+      accessPath: allowAccess,
+      spawnProcess,
+    }),
+    (error: Error) => {
+      assert.equal(error.message, "Cloudflare Pages deployment failed. Check the server logs for details.");
+      assert.equal(error.message.includes("secret-token"), false);
+      assert.equal(error.message.includes("/srv/deplo/private"), false);
+      return true;
+    },
+  );
 });
