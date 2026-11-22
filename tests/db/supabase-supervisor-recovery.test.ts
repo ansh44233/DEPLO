@@ -99,6 +99,32 @@ test("rejects missing configuration and malformed RPC responses", async () => {
   );
 });
 
+test("rejects recovery records with unknown fields or malformed action data", async () => {
+  const withUnknownField = { ...record, private_payload: "must-not-cross-trust-boundary" };
+  await assert.rejects(
+    claimNextDurableSupervisorRecovery(env, fetcher([withUnknownField])),
+    /invalid record/,
+  );
+  const withUnknownAction = { ...record, actions: ["execute_arbitrary_command"] };
+  await assert.rejects(
+    claimNextDurableSupervisorRecovery(env, fetcher([withUnknownAction])),
+    /invalid record/,
+  );
+});
+
+test("rejects inconsistent lease and terminal status combinations", async () => {
+  const unleasedActive = { ...record, status: "reconciling" };
+  await assert.rejects(
+    claimNextDurableSupervisorRecovery(env, fetcher([unleasedActive])),
+    /invalid record/,
+  );
+  const incompleteTerminal = { ...record, status: "completed" };
+  await assert.rejects(
+    claimNextDurableSupervisorRecovery(env, fetcher([incompleteTerminal])),
+    /invalid record/,
+  );
+});
+
 test("does not leak provider response details on failure", async () => {
   const failing: typeof fetch = async () => new Response("private provider diagnostic", { status: 500 });
   await assert.rejects(
