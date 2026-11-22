@@ -30,3 +30,13 @@ An authenticated `POST /v1/maintenance/cleanup` removes source archives older th
 ## Deliberately disabled
 
 `POST /v1/builds` returns HTTP 503 with `sandbox_not_configured`. This is intentional: source intake and workspace cleanup are not a sandbox. Do not enable build execution until disposable VM isolation, network policy, resource enforcement, cancellation, artifact export, and cleanup have been implemented and independently tested.
+
+## Supervisor crash-recovery contract
+
+`src/supervisor-recovery.ts` derives a conservative, immutable recovery plan from a validated supervisor journal:
+
+- Queued jobs may be requeued only after a trusted worker reconciles any job-owned VM/workspace resources.
+- Interrupted active jobs (preparing, starting, running, stopping) must be failed closed after resource reconciliation; they are never automatically resumed.
+- Terminal outcomes are preserved while leftover job-owned resources are reconciled.
+
+The planner is data-only. It does not persist journals, inspect host resources, stop VMs, delete workspaces, or authenticate resource ownership. A future recovery worker must verify ownership before acting, make each operation idempotent, and durably record its result. A journal snapshot alone cannot prove that a VM or workspace is absent. Build execution remains disabled.
