@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as yazl from "yazl";
-import { createRunnerServer } from "../../services/build-runner/src/server";
+import { createRunnerServer, validateRunnerBindHost } from "../../services/build-runner/src/server";
 
 const token = "runner-secret-".padEnd(40, "x");
 const jobId = "00000000-0000-4000-8000-000000000001";
@@ -170,4 +170,16 @@ test("source intake rejects ZIP path traversal and symbolic links", async t => {
   const symlink = await makeZip([{ name: "link", content: Buffer.from("target"), mode: 0o120777 }]);
   assert.equal((await send(symlink, "00000000-0000-4000-8000-000000000003")).status, 400);
   assert.deepEqual(await readdir(dir), []);
+});
+
+
+test("runner bind host defaults to loopback and rejects public interfaces", () => {
+  assert.equal(validateRunnerBindHost("127.0.0.1"), "127.0.0.1");
+  assert.equal(validateRunnerBindHost("10.20.30.40"), "10.20.30.40");
+  assert.equal(validateRunnerBindHost("192.168.1.10"), "192.168.1.10");
+  assert.equal(validateRunnerBindHost("::1"), "::1");
+  assert.equal(validateRunnerBindHost("localhost"), "localhost");
+  assert.throws(() => validateRunnerBindHost("0.0.0.0"), /loopback_or_private/);
+  assert.throws(() => validateRunnerBindHost("203.0.113.10"), /loopback_or_private/);
+  assert.throws(() => validateRunnerBindHost("::"), /loopback_or_private/);
 });
