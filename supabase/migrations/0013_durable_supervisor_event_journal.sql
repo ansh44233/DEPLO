@@ -131,10 +131,10 @@ begin
     raise exception 'Supervisor journal version conflict';
   end if;
 
-  select occurred_at::timestamptz into previous_time
+  select build_job_supervisor_events.occurred_at::timestamptz into previous_time
     from public.build_job_supervisor_events
    where build_job_supervisor_events.job_id = p_job_id
-   order by sequence desc
+   order by build_job_supervisor_events.sequence desc
    limit 1;
 
   if previous_time is not null and current_time_value <= previous_time then
@@ -184,7 +184,7 @@ begin
   );
 
   update public.build_job_supervisor_journals
-     set sequence = sequence + 1, state = p_next_state, updated_at = now()
+     set sequence = build_job_supervisor_journals.sequence + 1, state = p_next_state, updated_at = now()
    where build_job_supervisor_journals.job_id = p_job_id;
 
   return query select p_job_id, journal_row.sequence + 1, p_event_id, p_event,
