@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, safeEqual } from "@/lib/auth/session";
 import { encryptGitHubToken } from "@/lib/auth/github-token";
+import { exchangeGitHubCode } from "@/lib/auth/github-oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type GitHubTokenResponse = { access_token?: string; error?: string };
 type GitHubProfile = { id?: number; login?: string; name?: string | null; avatar_url?: string | null };
 
 function callbackUrl(): string | null {
@@ -69,24 +69,18 @@ export async function GET(request: NextRequest) {
   if (
     !code || !state || !savedState || !safeEqual(state, savedState) ||
     !clientId || !clientSecret || !sessionSecret || sessionSecret.length < 32 || !tokenEncryptionKey || tokenEncryptionKey.length < 32 || !redirectUri
-  ) return finish(request, "error");
+  ) {
+    console.error("[deplo] GitHub sign-in rejected before token exchange:", !code ? "missing_code" : !state || !savedState || !safeEqual(state, savedState) ? "state_mismatch" : "server_not_configured");
+    return finish(request, "error");
+  }
 
   try {
-    const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: redirectUri,
-      }),
-      signal: AbortSignal.timeout(8_000),
-      cache: "no-store",
-    });
-    if (!tokenResponse.ok) return finish(request, "error");
-    const tokenData = await tokenResponse.json() as GitHubTokenResponse;
-    if (!tokenData.access_token || tokenData.error) return finish(request, "error");
+    const exchanged = await exchangeGitHubCode({ clientId, clientSecret, code, redirectUri });
+    if ("error" in exchanged) {
+      console.error("[deplo] GitHub sign-in failed at token exchange:", exchanged.error);
+      return finish(request, "error");
+    }
+    const tokenData = { access_token: exchanged.accessToken };
 
     const profileResponse = await fetch("https://api.github.com/user", {
       headers: {
@@ -98,7 +92,10 @@ export async function GET(request: NextRequest) {
       signal: AbortSignal.timeout(8_000),
       cache: "no-store",
     });
-    if (!profileResponse.ok) return finish(request, "error");
+    if (!profileResponse.ok) {
+      console.error("[deplo] GitHub sign-in failed reading the profile:", profileResponse.status);
+      return finish(request, "error");
+    }
     const profile = await profileResponse.json() as GitHubProfile;
     if (
       !Number.isSafeInteger(profile.id) || (profile.id ?? 0) <= 0 ||
@@ -116,6 +113,7 @@ export async function GET(request: NextRequest) {
     const encryptedToken = encryptGitHubToken(tokenData.access_token, tokenEncryptionKey);
     return finish(request, "success", token, encryptedToken);
   } catch {
+    console.error("[deplo] GitHub sign-in failed: unexpected error");
     return finish(request, "error");
   }
 }
