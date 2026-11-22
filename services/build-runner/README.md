@@ -54,3 +54,10 @@ This is durable bookkeeping and concurrency control, **not** a recovery executor
 `lib/db/supabase-supervisor-recovery.ts` exposes server-side service-role RPC wrappers for creating an idempotent recovery plan, claiming a pending/expired attempt, acknowledging one action, and blocking an attempt. The claim's exact `claimed_at` timestamp is a fencing token and must be passed to every acknowledgement. Do not substitute a newly generated timestamp.
 
 The adapter is not wired to the build worker yet. No host recovery action is executed or acknowledged by this adapter. Apply migration `0010_durable_supervisor_recovery.sql` before using these functions. Keep all calls server-side; never expose the Supabase service-role key to a browser.
+
+
+## Recovery worker execution gate
+
+`src/supervisor-recovery-worker.ts` defines the current fail-closed gate for a future executor. It reports missing host inventory, resource ownership verification, VM control, workspace cleanup, and job-queue control capabilities. Even if every capability flag is supplied as true, it still returns `recovery_executor_not_implemented`, no executable actions, and no permission to acknowledge a recovery ledger action.
+
+These flags are diagnostic inputs, not attestations. This module intentionally performs no host calls and must not be treated as a recovery worker implementation. Do not wire it to automatic ledger claims until real host adapters, ownership proofs, idempotent operations, and independent tests exist.
