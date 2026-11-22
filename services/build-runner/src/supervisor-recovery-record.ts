@@ -27,6 +27,26 @@ export type SupervisorRecoveryRecord = Readonly<{
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RECOVERY_KEY = /^[a-zA-Z0-9_-]{8,128}$/;
 const ERROR_CODE = /^[a-z0-9_]{1,64}$/;
+const ACTIONS: readonly SupervisorRecoveryAction[] = [
+  "inspect_owned_resources",
+  "stop_owned_vm_if_present",
+  "remove_owned_workspace_if_present",
+  "requeue_job",
+  "record_recovery_failure",
+];
+const STATES: readonly SupervisorState[] = [
+  "queued", "preparing", "starting", "running", "stopping",
+  "succeeded", "failed", "cancelled",
+];
+const DISPOSITIONS: readonly SupervisorRecoveryDisposition[] = [
+  "requeue_after_reconciliation",
+  "fail_after_reconciliation",
+  "preserve_terminal_state",
+];
+const RECORD_KEYS = [
+  "jobId", "recoveryKey", "journalSequence", "observedState", "disposition",
+  "actions", "nextActionIndex", "status", "errorCode",
+];
 
 /** Create the immutable first version of a durable recovery ledger record. */
 export function createSupervisorRecoveryRecord(input: {
@@ -101,13 +121,19 @@ function validateRecord(record: SupervisorRecoveryRecord): void {
   if (
     !record ||
     typeof record !== "object" ||
+    Array.isArray(record) ||
+    (Object.getPrototypeOf(record) !== Object.prototype && Object.getPrototypeOf(record) !== null) ||
+    Object.keys(record).sort().join("|") !== [...RECORD_KEYS].sort().join("|") ||
     !UUID.test(record.jobId) ||
     !RECOVERY_KEY.test(record.recoveryKey) ||
     !Number.isSafeInteger(record.journalSequence) ||
     record.journalSequence < 0 ||
+    !STATES.includes(record.observedState) ||
+    !DISPOSITIONS.includes(record.disposition) ||
     !Array.isArray(record.actions) ||
     record.actions.length < 1 ||
     record.actions.length > 5 ||
+    record.actions.some(action => !ACTIONS.includes(action)) ||
     !Number.isSafeInteger(record.nextActionIndex) ||
     record.nextActionIndex < 0 ||
     record.nextActionIndex > record.actions.length ||
@@ -118,7 +144,10 @@ function validateRecord(record: SupervisorRecoveryRecord): void {
   if (record.status === "completed" && record.nextActionIndex !== record.actions.length) {
     throw new Error("invalid_supervisor_recovery_record");
   }
-  if (record.status === "blocked" && record.errorCode === null) {
+  if (
+    (record.status === "blocked" && (typeof record.errorCode !== "string" || !ERROR_CODE.test(record.errorCode))) ||
+    (record.status !== "blocked" && record.errorCode !== null)
+  ) {
     throw new Error("invalid_supervisor_recovery_record");
   }
 }
