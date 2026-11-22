@@ -41,6 +41,13 @@ async function describeCloudflareError(response: Response): Promise<string> {
   return detail;
 }
 
+/** The project's stable https://<subdomain>.pages.dev URL (the subdomain can differ from the name if it was taken). */
+export function productionUrlOf(payload: CloudflareProjectPayload, config: CloudflarePagesConfig): string {
+  const subdomain = isRecord(payload.result) && typeof payload.result.subdomain === "string" ? payload.result.subdomain : "";
+  if (/^[a-z0-9-]+\.pages\.dev$/.test(subdomain)) return "https://" + subdomain;
+  return "https://" + config.projectName + ".pages.dev";
+}
+
 function verifyProjectPayload(payload: CloudflareProjectPayload, config: CloudflarePagesConfig, productionBranch: string): void {
   if (
     payload.success !== true ||
@@ -82,7 +89,7 @@ export async function ensureCloudflarePagesProject(
   config: CloudflarePagesConfig,
   productionBranch: string,
   fetcher: typeof fetch = fetch,
-): Promise<void> {
+): Promise<{ productionUrl: string }> {
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(config.projectName)) {
     throw new Error("Invalid Cloudflare Pages project name.");
   }
@@ -105,7 +112,7 @@ export async function ensureCloudflarePagesProject(
   if (existing.ok) {
     const payload = await existing.json() as CloudflareProjectPayload;
     verifyProjectPayload(payload, config, productionBranch);
-    return;
+    return { productionUrl: productionUrlOf(payload, config) };
   }
   if (existing.status !== 404) {
     const detail = await describeCloudflareError(existing);
@@ -130,8 +137,9 @@ export async function ensureCloudflarePagesProject(
       cache: "no-store",
     });
     if (!raced.ok) throw new Error("Cloudflare Pages project could not be verified after a concurrent create.");
-    verifyProjectPayload(await raced.json() as CloudflareProjectPayload, config, productionBranch);
-    return;
+    const racedPayload = await raced.json() as CloudflareProjectPayload;
+    verifyProjectPayload(racedPayload, config, productionBranch);
+    return { productionUrl: productionUrlOf(racedPayload, config) };
   }
   if (!created.ok) {
     const detail = await describeCloudflareError(created);
@@ -139,7 +147,9 @@ export async function ensureCloudflarePagesProject(
     throw new Error("Cloudflare Pages project could not be created (" + detail + ")");
   }
 
-  verifyProjectPayload(await created.json() as CloudflareProjectPayload, config, productionBranch);
+  const createdPayload = await created.json() as CloudflareProjectPayload;
+  verifyProjectPayload(createdPayload, config, productionBranch);
+  return { productionUrl: productionUrlOf(createdPayload, config) };
 }
 
 

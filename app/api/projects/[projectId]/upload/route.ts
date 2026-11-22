@@ -101,23 +101,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
     await pruneUnpublishableFiles(outputDirectory);
     const assets = await inspectStaticDirectory(outputDirectory);
-    await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
+    const { productionUrl } = await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
     const deployment = await deployStaticDirectory(outputDirectory, pagesTarget.productionBranch, pagesTarget.config);
 
     let savedProject;
     try {
-      savedProject = await updateOwnedProjectDeployment(user.id, project.id, deployment.url);
+      savedProject = await updateOwnedProjectDeployment(user.id, project.id, productionUrl);
     } catch {
       return NextResponse.json({
         status: "deployed",
-        url: deployment.url,
+        url: productionUrl,
+        deploymentUrl: deployment.url,
         warning: "The site was deployed, but DEPLO could not save the URL to your project record.",
       }, { status: 201, headers: { "Cache-Control": "no-store" } });
     }
     return NextResponse.json({
       status: "deployed",
       project: savedProject,
-      url: deployment.url,
+      url: productionUrl,
+      deploymentUrl: deployment.url,
       fileCount: assets.fileCount,
       totalBytes: assets.totalBytes,
     }, { status: 201, headers: { "Cache-Control": "no-store" } });

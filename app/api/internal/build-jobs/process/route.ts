@@ -57,10 +57,10 @@ async function publishBuildArtifact(job: NonNullable<Awaited<ReturnType<typeof c
   try {
     const workDirectory = join(temporaryRoot, "artifact");
     const validated = await downloadAndValidateBuildArtifact(artifact, workDirectory);
-    await ensureCloudflarePagesProject(target.config, target.productionBranch);
-    const deployed = await deployStaticDirectory(validated.extractionDirectory, target.productionBranch, target.config);
-    await updateOwnedProjectDeployment(job.owner_github_id, job.project_id, deployed.url);
-    return deployed.url;
+    const { productionUrl } = await ensureCloudflarePagesProject(target.config, target.productionBranch);
+    await deployStaticDirectory(validated.extractionDirectory, target.productionBranch, target.config);
+    await updateOwnedProjectDeployment(job.owner_github_id, job.project_id, productionUrl);
+    return productionUrl;
   } finally { await rm(temporaryRoot, { recursive: true, force: true }).catch(() => undefined); }
 }
 

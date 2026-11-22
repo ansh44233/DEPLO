@@ -156,3 +156,14 @@ test("keeps generated project names within Cloudflare's 58-character limit", () 
   assert.ok(target.config.projectName.length <= 58, target.config.projectName);
   assert.match(target.config.projectName, /^[a-z0-9][a-z0-9-]*[a-z0-9]$/);
 });
+
+test("returns the project's stable pages.dev URL, preferring Cloudflare's subdomain", async () => {
+  const config = { ...baseConfig, projectName: "deplo-abc123-portfolio" };
+  const ok = (result: unknown) => new Response(JSON.stringify({ success: true, result }), { status: 200 });
+  const taken = await ensureCloudflarePagesProject(config, "site-portfolio", async () => ok({ name: "deplo-abc123-portfolio", production_branch: "site-portfolio", subdomain: "deplo-abc123-portfolio-9x2.pages.dev" }));
+  assert.equal(taken.productionUrl, "https://deplo-abc123-portfolio-9x2.pages.dev");
+  const plain = await ensureCloudflarePagesProject(config, "site-portfolio", async () => ok({ name: "deplo-abc123-portfolio", production_branch: "site-portfolio" }));
+  assert.equal(plain.productionUrl, "https://deplo-abc123-portfolio.pages.dev");
+  const weird = await ensureCloudflarePagesProject(config, "site-portfolio", async () => ok({ name: "deplo-abc123-portfolio", production_branch: "site-portfolio", subdomain: "evil.example.com" }));
+  assert.equal(weird.productionUrl, "https://deplo-abc123-portfolio.pages.dev");
+});

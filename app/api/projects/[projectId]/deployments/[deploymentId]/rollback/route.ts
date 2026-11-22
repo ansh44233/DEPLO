@@ -61,13 +61,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const deployment = await rollbackCloudflarePagesDeployment(pagesTarget.config, deploymentId);
+    // The stable production URL stays the same; only what it serves changes.
+    const productionUrl = project.deployment_url && /^https:\/\/[a-z0-9-]+\.pages\.dev$/.test(project.deployment_url) ? project.deployment_url : deployment.url;
     let savedProject;
     try {
-      savedProject = await updateOwnedProjectDeployment(user.id, project.id, deployment.url);
+      savedProject = await updateOwnedProjectDeployment(user.id, project.id, productionUrl);
     } catch {
       return NextResponse.json({
         status: "rolled_back",
-        url: deployment.url,
+        url: productionUrl,
         warning: "Cloudflare completed the rollback, but DEPLO could not update the saved project URL.",
       }, { status: 200, headers: { "Cache-Control": "no-store" } });
     }
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       status: "rolled_back",
       project: savedProject,
       deployment,
-      url: deployment.url,
+      url: productionUrl,
     }, { status: 200, headers: { "Cache-Control": "no-store" } });
   } catch {
     return errorResponse("Cloudflare Pages could not complete the rollback. Refresh deployment history and try again.", 502);
