@@ -108,3 +108,23 @@ test("rejects a ZIP that has no root index.html", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("does not expose internal filesystem paths when artifact processing fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "deplo-artifact-path-redaction-"));
+  const missingParent = join(root, "private-internal-path", "work");
+  try {
+    await assert.rejects(
+      downloadAndValidateBuildArtifact(metadata, missingParent, env, artifactFetcher(await makeZip())),
+      (error: unknown) => {
+        assert.ok(error instanceof BuildArtifactError);
+        assert.equal(error.code, "invalid_artifact");
+        assert.equal(error.message, "The build artifact could not be validated due to an internal processing error.");
+        assert.equal(error.message.includes(root), false);
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
