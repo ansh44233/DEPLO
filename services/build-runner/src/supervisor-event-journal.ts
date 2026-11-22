@@ -65,6 +65,10 @@ function validateTimestamp(value: unknown, errorCode = "invalid_supervisor_journ
   }
 }
 
+function sameEvidence(left: SupervisorEvidence, right: SupervisorEvidence): boolean {
+  return EVIDENCE_KEYS.every(key => left[key] === right[key]);
+}
+
 function validateEvidence(value: unknown): asserts value is SupervisorEvidence {
   if (!isRecord(value)) throw new Error("invalid_supervisor_journal_snapshot");
   if (Object.keys(value).some(key => !EVIDENCE_KEYS.includes(key as typeof EVIDENCE_KEYS[number]))) {
@@ -144,14 +148,14 @@ export function appendSupervisorEvent(
   }
   validateTimestamp(input.occurredAt, "invalid_supervisor_event_timestamp");
 
-  const evidence: SupervisorEvidence = input.evidence ?? {};
+  const evidence: SupervisorEvidence = input.evidence === undefined ? {} : input.evidence;
   validateEvidence(evidence);
 
   const existing = journal.events.find(item => item.eventId === input.eventId);
   if (existing) {
     const same = existing.event === input.event &&
       existing.occurredAt === input.occurredAt &&
-      JSON.stringify(existing.evidence) === JSON.stringify(evidence);
+      sameEvidence(existing.evidence, evidence);
     if (same) return journal;
     throw new Error("supervisor_event_id_conflict");
   }
