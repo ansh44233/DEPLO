@@ -35,6 +35,117 @@ export class SupervisorRecoveryStoreError extends Error {
 type StoreConfig = { baseUrl: string; serviceKey: string };
 type Fetcher = typeof fetch;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RECOVERY_KEY = /^[a-zA-Z0-9_-]{8,128}$/;
+const ERROR_CODE = /^[a-z0-9_]{1,64}$/;
+const STATES = ["queued", "preparing", "starting", "running", "stopping", "succeeded", "failed", "cancelled"] as const;
+const ACTIONS = [
+  "inspect_owned_resources",
+  "stop_owned_vm_if_present",
+  "remove_owned_workspace_if_present",
+  "requeue_job",
+  "record_recovery_failure",
+] as const;
+const DISPOSITIONS = [
+  "requeue_after_reconciliation",
+  "fail_after_reconciliation",
+  "preserve_terminal_state",
+] as const;
+const RECORD_KEYS = [
+  "id", "job_id", "recovery_key", "journal_sequence", "observed_state",
+  "disposition", "actions", "next_action_index", "status", "claimed_at",
+  "error_code", "created_at", "updated_at",
+].sort();
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function validTimestamp(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    Number.isFinite(Date.parse(value));
+}
+
+/** Treat database JSON as untrusted input; reject malformed or internally inconsistent rows. */
+export function validateDurableSupervisorRecoveryRecord(
+  value: unknown,
+): DurableSupervisorRecoveryRecord {
+  if (!isPlainObject(value) || Object.keys(value).sort().join("|") !== RECORD_KEYS.join("|")) {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
+  }
+
+  const row = value;
+  const state = row.observed_state;
+  const actions = row.actions;
+  const status = row.status;
+  const cursor = row.next_action_index;
+  const claimedAt = row.claimed_at;
+  const errorCode = row.error_code;
+
+  const commonActions = [
+    "inspect_owned_resources",
+    "stop_owned_vm_if_present",
+    "remove_owned_workspace_if_present",
+  ];
+  const expectedActions = state === "queued"
+    ? [...commonActions, "requeue_job"]
+    : state === "preparing" || state === "starting" || state === "running" || state === "stopping"
+      ? [...commonActions, "record_recovery_failure"]
+      : commonActions;
+  const expectedDisposition = state === "queued"
+    ? "requeue_after_reconciliation"
+    : state === "preparing" || state === "starting" || state === "running" || state === "stopping"
+      ? "fail_after_reconciliation"
+      : "preserve_terminal_state";
+
+  if (
+    typeof row.id !== "string" || !UUID.test(row.id) ||
+    typeof row.job_id !== "string" || !UUID.test(row.job_id) ||
+    typeof row.recovery_key !== "string" || !RECOVERY_KEY.test(row.recovery_key) ||
+    !Number.isSafeInteger(row.journal_sequence) || (row.journal_sequence as number) < 0 ||
+    typeof state !== "string" || !(STATES as readonly string[]).includes(state) ||
+    row.disposition !== expectedDisposition || !DISPOSITIONS.includes(row.disposition as typeof DISPOSITIONS[number]) ||
+    !Array.isArray(actions) || actions.length !== expectedActions.length ||
+    actions.some((action, index) => action !== expectedActions[index] || !(ACTIONS as readonly string[]).includes(String(action))) ||
+    !Number.isSafeInteger(cursor) || (cursor as number) < 0 || (cursor as number) > actions.length ||
+    !["pending", "reconciling", "completed", "blocked"].includes(String(status)) ||
+    !(claimedAt === null || validTimestamp(claimedAt)) ||
+    !(errorCode === null || (typeof errorCode === "string" && ERROR_CODE.test(errorCode))) ||
+    !validTimestamp(row.created_at) || !validTimestamp(row.updated_at) ||
+    Date.parse(row.updated_at) < Date.parse(row.created_at)
+  ) {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
+  }
+
+  if (
+    (status === "pending" && (cursor !== 0 || claimedAt !== null || errorCode !== null)) ||
+    (status === "reconciling" && (cursor === actions.length || claimedAt === null || errorCode !== null)) ||
+    (status === "completed" && (cursor !== actions.length || claimedAt !== null || errorCode !== null)) ||
+    (status === "blocked" && (cursor === actions.length || claimedAt !== null || errorCode === null))
+  ) {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
+  }
+
+  return Object.freeze({
+    id: row.id,
+    job_id: row.job_id,
+    recovery_key: row.recovery_key,
+    journal_sequence: row.journal_sequence as number,
+    observed_state: state as DurableSupervisorRecoveryRecord["observed_state"],
+    disposition: row.disposition as SupervisorRecoveryDisposition,
+    actions: Object.freeze([...actions]) as readonly SupervisorRecoveryAction[],
+    next_action_index: cursor as number,
+    status: status as DurableSupervisorRecoveryStatus,
+    claimed_at: claimedAt as string | null,
+    error_code: errorCode as string | null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  });
+}
+
 function readConfig(env: Record<string, string | undefined>): StoreConfig | null {
   const rawUrl = env.SUPABASE_URL?.trim();
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -92,7 +203,7 @@ function firstRecord(value: unknown): DurableSupervisorRecoveryRecord | null {
   if (!Array.isArray(value)) {
     throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
   }
-  return (value[0] as DurableSupervisorRecoveryRecord | undefined) ?? null;
+  return value.length === 0 ? null : validateDurableSupervisorRecoveryRecord(value[0]);
 }
 
 export async function beginDurableSupervisorRecovery(
