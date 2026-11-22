@@ -5,7 +5,7 @@ import { LEGACY_UPLOADS_UNAVAILABLE_MESSAGE, legacyDiskUploadsAvailable } from "
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +78,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return jsonError("The site must contain an index.html file at its root.", 422);
     }
 
+    await pruneUnpublishableFiles(outputDirectory);
     const assets = await inspectStaticDirectory(outputDirectory);
     const branch = `site-${body.projectSlug}`;
     if (!isValidPagesBranch(branch)) return jsonError("Invalid deployment branch.", 400);

@@ -6,7 +6,7 @@ import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
 import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { hasHtmlDocument, hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "@/lib/uploads/validate-upload";
 
@@ -99,6 +99,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!indexFile?.isFile()) {
       return jsonError("The site must contain a root index.html file. DEPLO currently publishes static sites only.", 422);
     }
+    await pruneUnpublishableFiles(outputDirectory);
     const assets = await inspectStaticDirectory(outputDirectory);
     await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
     const deployment = await deployStaticDirectory(outputDirectory, pagesTarget.productionBranch, pagesTarget.config);

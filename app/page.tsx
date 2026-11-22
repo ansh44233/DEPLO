@@ -1015,7 +1015,12 @@ export default function Home() {
                   {isDeployed ? <>
                     <iframe src={selected.domain} title={"Live preview of " + selected.name} loading="lazy" sandbox="allow-scripts allow-same-origin" tabIndex={-1} aria-hidden="true" />
                     <a className="preview-link" href={selected.domain} target="_blank" rel="noreferrer" aria-label={"Open " + selected.name} />
-                  </> : <div className="preview-empty"><Rocket size={22} /><span>{selected.sourceType === "github" ? "Press Deploy to publish this repository." : "Not deployed yet."}</span></div>}
+                  </> : <div className="preview-empty">
+                    <Rocket size={20} />
+                    <strong>No deployment yet</strong>
+                    <span>{selected.sourceType === "github" ? "Deploy to build " + selected.branch + " and get a live URL." : "Upload the site again to publish it."}</span>
+                    {selected.id && selected.sourceType === "github" && <button className="btn btn-primary btn-sm" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>{projectDeploying ? "Deploying " + fmtElapsed(deployElapsed) : "Deploy now"}</button>}
+                  </div>}
                 </div>
                 <dl className="production-meta">
                   <div><dt>Deployment</dt><dd>{isDeployed ? <a className="mono" href={selected.domain} target="_blank" rel="noreferrer">{hostOf(selected.domain)}</a> : <span className="muted">None yet</span>}</dd></div>
@@ -1291,7 +1296,7 @@ export default function Home() {
         </div>
       </div>}
 
-      {!communityHidden && <aside className="community" aria-label="DEPLO is open source">
+      {!communityHidden && activeNav === "home" && <aside className="community" aria-label="DEPLO is open source">
         <button className="icon-btn community-close" onClick={dismissCommunity} aria-label="Dismiss"><X size={15} /></button>
         <div className="community-art" aria-hidden="true">
           <img src="/deplo-mark.svg" alt="" width={28} height={28} />
