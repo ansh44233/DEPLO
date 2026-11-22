@@ -17,6 +17,8 @@ type RawDomain = {
   verification_data?: { status?: unknown; error_message?: unknown };
 };
 
+const MAX_DOMAINS_PER_PROJECT = 500;
+
 const DOMAIN_STATUSES = new Set<PagesDomainStatus>(["initializing", "pending", "active", "deactivated", "blocked", "error"]);
 function status(value: unknown): PagesDomainStatus {
   return typeof value === "string" && DOMAIN_STATUSES.has(value as PagesDomainStatus) ? value as PagesDomainStatus : "unknown";
@@ -105,7 +107,9 @@ export function normalizeCustomDomain(input: string): string {
 
 export async function listPagesDomains(config: CloudflarePagesConfig, fetcher: typeof fetch = fetch): Promise<PagesDomain[]> {
   const result = await cloudflareRequest<RawDomain[]>(config, domainEndpoint(config), { method: "GET" }, fetcher);
-  if (!Array.isArray(result)) throw new Error("Cloudflare returned an invalid custom-domain list.");
+  if (!Array.isArray(result) || result.length > MAX_DOMAINS_PER_PROJECT) {
+    throw new Error("Cloudflare returned an invalid custom-domain list.");
+  }
   return result.map(mapDomain).filter((domain) => domain.name);
 }
 
