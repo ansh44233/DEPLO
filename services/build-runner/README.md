@@ -40,3 +40,10 @@ An authenticated `POST /v1/maintenance/cleanup` removes source archives older th
 - Terminal outcomes are preserved while leftover job-owned resources are reconciled.
 
 The planner is data-only. It does not persist journals, inspect host resources, stop VMs, delete workspaces, or authenticate resource ownership. A future recovery worker must verify ownership before acting, make each operation idempotent, and durably record its result. A journal snapshot alone cannot prove that a VM or workspace is absent. Build execution remains disabled.
+
+
+## Durable supervisor recovery ledger
+
+Migration `0010_durable_supervisor_recovery.sql` adds a service-role-only recovery ledger keyed by `(job_id, recovery_key)`. It stores the immutable journal sequence, observed state, disposition, ordered action list, progress cursor, lease timestamp, and a sanitized blocking error. Repeating the same key and plan is idempotent; reusing the key for a different plan is rejected. A worker can atomically claim pending or expired records, acknowledge one action at a time with an expected cursor, or mark an attempt blocked.
+
+This is durable bookkeeping and concurrency control, **not** a recovery executor. The RPCs do not inspect host resources, authenticate VM/workspace ownership, stop VMs, delete workspaces, or requeue builds. A future trusted worker must independently complete and verify each host action before acknowledging it. Do not treat a completed ledger record as proof of isolation or cleanup. Build execution remains disabled.
