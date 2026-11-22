@@ -35,6 +35,79 @@ export class SupervisorRecoveryStoreError extends Error {
 type StoreConfig = { baseUrl: string; serviceKey: string };
 type Fetcher = typeof fetch;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RECOVERY_KEY = /^[a-zA-Z0-9_-]{8,128}$/;
+const ERROR_CODE = /^[a-z0-9_]{1,64}$/;
+const STATES = ["queued", "preparing", "starting", "running", "stopping", "succeeded", "failed", "cancelled"] as const;
+const DISPOSITIONS = ["requeue_after_reconciliation", "fail_after_reconciliation", "preserve_terminal_state"] as const;
+const ACTIONS = [
+  "inspect_owned_resources",
+  "stop_owned_vm_if_present",
+  "remove_owned_workspace_if_present",
+  "requeue_job",
+  "record_recovery_failure",
+] as const;
+const STATUSES = ["pending", "reconciling", "completed", "blocked"] as const;
+const RECORD_KEYS = [
+  "id", "job_id", "recovery_key", "journal_sequence", "observed_state",
+  "disposition", "actions", "next_action_index", "status", "claimed_at",
+  "error_code", "created_at", "updated_at",
+];
+
+function invalidRecord(): never {
+  throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid record.", 502);
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) && value.endsWith("Z");
+}
+
+/** Treat the database response as untrusted input before any worker uses it. */
+function parseRecord(value: unknown): DurableSupervisorRecoveryRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalidRecord();
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).sort().join("|") !== [...RECORD_KEYS].sort().join("|")) return invalidRecord();
+  if (
+    typeof row.id !== "string" || !UUID.test(row.id) ||
+    typeof row.job_id !== "string" || !UUID.test(row.job_id) ||
+    typeof row.recovery_key !== "string" || !RECOVERY_KEY.test(row.recovery_key) ||
+    !Number.isSafeInteger(row.journal_sequence) || (row.journal_sequence as number) < 0 ||
+    !STATES.includes(row.observed_state as typeof STATES[number]) ||
+    !DISPOSITIONS.includes(row.disposition as typeof DISPOSITIONS[number]) ||
+    !Array.isArray(row.actions) || row.actions.length < 1 || row.actions.length > 5 ||
+    row.actions.some(action => !ACTIONS.includes(action as typeof ACTIONS[number])) ||
+    !Number.isSafeInteger(row.next_action_index) || (row.next_action_index as number) < 0 ||
+    (row.next_action_index as number) > row.actions.length ||
+    !STATUSES.includes(row.status as typeof STATUSES[number]) ||
+    !(row.claimed_at === null || isTimestamp(row.claimed_at)) ||
+    !(row.error_code === null || (typeof row.error_code === "string" && ERROR_CODE.test(row.error_code))) ||
+    !isTimestamp(row.created_at) || !isTimestamp(row.updated_at)
+  ) return invalidRecord();
+
+  if (
+    (row.status === "pending" && (row.next_action_index !== 0 || row.claimed_at !== null || row.error_code !== null)) ||
+    (row.status === "reconciling" && (row.claimed_at === null || row.error_code !== null || row.next_action_index === row.actions.length)) ||
+    (row.status === "completed" && (row.next_action_index !== row.actions.length || row.error_code !== null)) ||
+    (row.status === "blocked" && (row.error_code === null || row.claimed_at !== null))
+  ) return invalidRecord();
+
+  return Object.freeze({
+    id: row.id as string,
+    job_id: row.job_id as string,
+    recovery_key: row.recovery_key as string,
+    journal_sequence: row.journal_sequence as number,
+    observed_state: row.observed_state as DurableSupervisorRecoveryRecord["observed_state"],
+    disposition: row.disposition as SupervisorRecoveryDisposition,
+    actions: Object.freeze([...(row.actions as SupervisorRecoveryAction[])]),
+    next_action_index: row.next_action_index as number,
+    status: row.status as DurableSupervisorRecoveryStatus,
+    claimed_at: row.claimed_at as string | null,
+    error_code: row.error_code as string | null,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  });
+}
+
 function readConfig(env: Record<string, string | undefined>): StoreConfig | null {
   const rawUrl = env.SUPABASE_URL?.trim();
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -92,7 +165,7 @@ function firstRecord(value: unknown): DurableSupervisorRecoveryRecord | null {
   if (!Array.isArray(value)) {
     throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
   }
-  return (value[0] as DurableSupervisorRecoveryRecord | undefined) ?? null;
+  return value.length === 0 ? null : parseRecord(value[0]);
 }
 
 export async function beginDurableSupervisorRecovery(
@@ -153,7 +226,7 @@ export async function blockDurableSupervisorRecovery(
   env: Record<string, string | undefined> = process.env,
   fetcher: Fetcher = fetch,
 ): Promise<DurableSupervisorRecoveryRecord> {
-  const safeErrorCode = /^[a-z0-9_]{1,64}$/.test(errorCode) ? errorCode : "recovery_blocked";
+  const safeErrorCode = ERROR_CODE.test(errorCode) ? errorCode : "recovery_blocked";
   const record = firstRecord(await rpc<unknown>("block_deplo_build_recovery", {
     p_attempt_id: attemptId,
     p_claimed_at: claimedAt,
