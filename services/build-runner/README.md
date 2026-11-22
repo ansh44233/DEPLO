@@ -21,7 +21,7 @@ The source directory must be on a private persistent filesystem with access rest
 
 ## Operator diagnostics
 
-`GET /v1/diagnostics` requires the runner bearer token. It reports the Node runtime platform/architecture, whether source and workspace storage are configured, and explicit execution readiness flags. The endpoint deliberately reports `backendConfigured: false`, `resourceLimitsEnforced: false`, `networkEgressDenied: false`, and `buildsEnabled: false` until a real isolation backend is installed and verified. It does not expose filesystem paths, credentials, or environment values. This is an operator inventory, not a security attestation.
+`GET /v1/diagnostics` requires the runner bearer token. It reports the Node runtime platform/architecture, whether source and workspace storage are configured, and explicit execution readiness flags. The endpoint deliberately reports `backendConfigured: false`, `resourceLimitsEnforced: false`, `networkEgressDenied: false`, and `buildsEnabled: false` until a real isolation backend is installed and verified. It also checks for a Linux host, a KVM device, configured Firecracker binary/kernel/initrd files, and required cgroup v2 controllers (`cpu`, `memory`, `pids`). Configure `DEPLO_FIRECRACKER_BIN`, `DEPLO_FIRECRACKER_KERNEL`, and `DEPLO_FIRECRACKER_INITRD` to inventory those files. Only booleans and stable blocker codes are returned; filesystem paths, credentials, and environment values are never exposed. These checks are preflight inventory only: the Firecracker execution backend is not implemented, resource limits are not enforced, network egress is not denied, and builds remain disabled. This is not a security attestation.
 
 ## Maintenance
 
