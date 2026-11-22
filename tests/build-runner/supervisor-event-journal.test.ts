@@ -152,3 +152,38 @@ test("append refuses an inconsistent caller-supplied snapshot", () => {
     },
   }), /invalid_supervisor_journal_snapshot/);
 });
+
+test("identical retries remain idempotent when evidence key order differs", () => {
+  const starting = validJournal();
+  const evidence = {
+    vmIsolationVerified: true,
+    resourceLimitsVerified: true,
+    networkIsolationVerified: true,
+  };
+  const appended = appendSupervisorEvent(starting, {
+    eventId: "event_0003",
+    event: "started",
+    occurredAt: "2026-11-22T00:00:02.000Z",
+    evidence,
+  });
+  const retry = appendSupervisorEvent(appended, {
+    eventId: "event_0003",
+    event: "started",
+    occurredAt: "2026-11-22T00:00:02.000Z",
+    evidence: {
+      networkIsolationVerified: true,
+      vmIsolationVerified: true,
+      resourceLimitsVerified: true,
+    },
+  });
+  assert.equal(retry, appended);
+});
+
+test("rejects null evidence instead of silently treating it as empty", () => {
+  assert.throws(() => appendSupervisorEvent(createSupervisorJournal(), {
+    eventId: "event_0001",
+    event: "prepare",
+    occurredAt: "2026-11-22T00:00:00.000Z",
+    evidence: null as unknown as undefined,
+  }), /invalid_supervisor_journal_snapshot/);
+});
