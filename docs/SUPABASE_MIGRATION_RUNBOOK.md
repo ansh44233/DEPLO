@@ -23,6 +23,7 @@ repository inventory is:
 | 0010 | `0010_durable_supervisor_recovery.sql` | Durable supervisor recovery records and RPCs |
 | 0011 | `0011_recovery_inventory_nonces.sql` | Job-bound, one-time recovery inventory nonces |
 | 0012 | `0012_recovery_inventory_nonce_retention.sql` | Bounded nonce-retention cleanup RPC |
+| 0013 | `0013_pull_request_preview_deliveries.sql` | Pull request number on webhook deliveries, for preview deploys |
 
 Do not skip a migration or apply 0011/0012 ahead of 0001–0010. If the remote
 database has a different migration history, stop and reconcile it before
@@ -66,7 +67,7 @@ supabase migration list
 ```
 
 The final migration list should show the repository migrations through
-`0012_recovery_inventory_nonce_retention.sql` as applied to the intended
+`0013_pull_request_preview_deliveries.sql` as applied to the intended
 project. Save the command output and deployment timestamp in the team's
 operational record. Do not include secrets in that record.
 

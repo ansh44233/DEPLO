@@ -3,6 +3,7 @@ import { after as afterResponse, NextRequest, NextResponse } from "next/server";
 import { kickWorker } from "@/lib/workers/background";
 import { safeEqual } from "@/lib/auth/session";
 import { normalizeInstallationLifecycleEvent } from "@/lib/github/installation-lifecycle";
+import { normalizePullRequestEvent } from "@/lib/github/pull-request-preview";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,14 @@ type PushPayload = {
   sender?: { id?: unknown };
 };
 type InstallationPayload = { action?: unknown; installation?: { id?: unknown } };
+type DeliveryRecord = {
+  repository_full_name: string;
+  branch: string;
+  commit_sha: string;
+  sender_github_id: number | null;
+  /** Set for pull request deliveries; `branch` is then the PR's base branch. */
+  pull_request_number?: number;
+};
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, {
@@ -89,23 +98,47 @@ export async function POST(request: NextRequest) {
       return error("GitHub App installation storage is temporarily unavailable.", 502);
     }
   }
-  if (event !== "push") return NextResponse.json({ accepted: true, ignored: true }, { headers: { "Cache-Control": "no-store" } });
-  const pushPayload = payload as PushPayload;
+  let record: DeliveryRecord;
+  if (event === "pull_request") {
+    const pullRequest = normalizePullRequestEvent(payload);
+    if (pullRequest.kind === "invalid") return error("Webhook payload is missing valid pull request data.", 400);
+    if (pullRequest.kind === "ignore") {
+      return NextResponse.json({ accepted: true, ignored: true, reason: pullRequest.reason }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    record = {
+      repository_full_name: pullRequest.repositoryFullName,
+      branch: pullRequest.baseBranch,
+      commit_sha: pullRequest.headSha,
+      sender_github_id: pullRequest.senderGithubId,
+      pull_request_number: pullRequest.number,
+    };
+  } else if (event === "push") {
+    const pushPayload = payload as PushPayload;
+    const repository = pushPayload.repository?.full_name;
+    const ref = pushPayload.ref;
+    const after = pushPayload.after;
+    const match = typeof ref === "string" ? REF_PATTERN.exec(ref) : null;
+    if (
+      typeof repository !== "string" || !REPOSITORY_PATTERN.test(repository) ||
+      !match || typeof after !== "string" || !SHA_PATTERN.test(after) ||
+      typeof pushPayload.deleted !== "boolean"
+    ) return error("Webhook payload is missing valid repository, branch, or commit data.", 400);
 
-  const repository = pushPayload.repository?.full_name;
-  const ref = pushPayload.ref;
-  const after = pushPayload.after;
-  const match = typeof ref === "string" ? REF_PATTERN.exec(ref) : null;
-  if (
-    typeof repository !== "string" || !REPOSITORY_PATTERN.test(repository) ||
-    !match || typeof after !== "string" || !SHA_PATTERN.test(after) ||
-    typeof pushPayload.deleted !== "boolean"
-  ) return error("Webhook payload is missing valid repository, branch, or commit data.", 400);
-
-  if (pushPayload.deleted || after === "0000000000000000000000000000000000000000") {
-    return NextResponse.json({ accepted: true, ignored: true, reason: "branch-deleted" }, {
-      headers: { "Cache-Control": "no-store" },
-    });
+    if (pushPayload.deleted || after === "0000000000000000000000000000000000000000") {
+      return NextResponse.json({ accepted: true, ignored: true, reason: "branch-deleted" }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    record = {
+      repository_full_name: repository.toLowerCase(),
+      branch: match[1],
+      commit_sha: after,
+      sender_github_id: Number.isSafeInteger(pushPayload.sender?.id) ? pushPayload.sender?.id as number : null,
+    };
+  } else {
+    return NextResponse.json({ accepted: true, ignored: true }, { headers: { "Cache-Control": "no-store" } });
   }
 
   const baseUrl = process.env.SUPABASE_URL?.trim();
@@ -132,10 +165,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         delivery_id: deliveryId,
-        repository_full_name: repository.toLowerCase(),
-        branch: match[1],
-        commit_sha: after,
-        sender_github_id: Number.isSafeInteger(pushPayload.sender?.id) ? pushPayload.sender?.id : null,
+        ...record,
         status: "received",
       }),
       signal: AbortSignal.timeout(8_000),

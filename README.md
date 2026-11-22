@@ -221,7 +221,7 @@ Every pull request runs migrations check, tests, typecheck and build in CI.
 - [x] Rollbacks, logs, custom domains
 - [x] Command menu and live site previews
 - [ ] Per-project environment variables for builds
-- [ ] Preview deployments for pull requests
+- [x] Preview deployments for pull requests
 - [ ] Streaming build logs while the build runs
 - [ ] Team workspaces
 

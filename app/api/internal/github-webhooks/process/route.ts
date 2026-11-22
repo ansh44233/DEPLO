@@ -10,6 +10,7 @@ import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deplo
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
 import { getGitHubArchiveHeaders } from "@/lib/github/webhook-archive";
+import { previewBranchFor, previewUrlFor } from "@/lib/github/pull-request-preview";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 
 export const runtime = "nodejs";
@@ -17,7 +18,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
-type Delivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; attempt_count: number };
+type Delivery = {
+  delivery_id: string;
+  repository_full_name: string;
+  branch: string;
+  commit_sha: string;
+  attempt_count: number;
+  /** Set for pull request deliveries: deploy a preview instead of production. */
+  pull_request_number?: number | null;
+};
 type Project = WebhookProjectCandidate;
 
 function error(message: string, status: number) {
@@ -186,6 +195,8 @@ async function processNextDelivery(): Promise<NextResponse> {
       return NextResponse.json({ processed: true, deployed: 0, ignored: true }, { headers: { "Cache-Control": "no-store" } });
     }
 
+    const pullRequestNumber = typeof delivery.pull_request_number === "number" ? delivery.pull_request_number : null;
+    const previewUrls: string[] = [];
     let deployed = 0;
     for (const project of matches) {
       const installationId = await getInstallationId(config.baseUrl, config.serviceKey, project.owner_github_id);
@@ -235,7 +246,14 @@ async function processNextDelivery(): Promise<NextResponse> {
 
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
         const { productionUrl } = await ensureCloudflarePagesProject(target.config, target.productionBranch);
-        const deployment = await deployStaticDirectory(publishRoot, target.productionBranch, target.config);
+        if (pullRequestNumber !== null) {
+          // Previews go to their own branch alias and never replace the production URL.
+          await deployStaticDirectory(publishRoot, previewBranchFor(pullRequestNumber), target.config);
+          previewUrls.push(previewUrlFor(productionUrl, pullRequestNumber));
+          deployed += 1;
+          continue;
+        }
+        await deployStaticDirectory(publishRoot, target.productionBranch, target.config);
         const saved = await db<Project[]>(
           endpoint(config.baseUrl, "projects", {
             select: "id",
@@ -256,7 +274,11 @@ async function processNextDelivery(): Promise<NextResponse> {
       }
     }
     await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "deployed");
-    return NextResponse.json({ processed: true, deployed }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({
+      processed: true,
+      deployed,
+      ...(pullRequestNumber !== null ? { pullRequest: pullRequestNumber, previewUrls } : {}),
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const code = cause instanceof Error && /^[a-z_]{3,64}$/.test(cause.message) ? cause.message : "deployment_failed";
     await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "failed", code).catch(() => undefined);

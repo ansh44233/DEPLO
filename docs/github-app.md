@@ -5,8 +5,8 @@ DEPLO supports account-bound GitHub App installations for automatic deployment o
 ## GitHub App configuration
 
 Create a GitHub App with:
-- Repository permissions: **Contents: Read-only**, **Metadata: Read-only**.
-- Subscribe to **Push** and **Installation** events.
+- Repository permissions: **Contents: Read-only**, **Metadata: Read-only**, **Pull requests: Read-only**.
+- Subscribe to **Push**, **Pull request** and **Installation** events.
 - Setup URL: `https://YOUR_DEPLO_HOST/api/auth/github/install/callback`.
 - Webhook URL: `https://YOUR_DEPLO_HOST/api/webhooks/github`.
 - Webhook secret: the same value configured as `DEPLO_GITHUB_WEBHOOK_SECRET`.
@@ -25,6 +25,10 @@ Set these server-only variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 
 Apply migrations `0004_github_app_installations.sql` and `0005_github_app_installation_lifecycle.sql`. DEPLO removes deleted installation records and disables deployments while an installation is suspended; unsuspending restores the connection.
+
+## Pull request previews
+
+When a pull request is opened, reopened or gets new commits, DEPLO builds its head commit for every project that deploys the PR's base branch. Each preview is published to the Cloudflare Pages branch `pr-<number>` and served at `https://pr-<number>.<project>.pages.dev`; the production URL never changes. Previews appear in the project's deployment history as **preview** deployments. Pull requests from forks are ignored, because their code is untrusted and would otherwise be fetched with the installation token. Apply migration `0013_pull_request_preview_deliveries.sql` before subscribing to **Pull request** events.
 
 Installation tokens are minted on demand using a short-lived RS256 app JWT and request only Contents and Metadata read permissions. Tokens are never stored. Automatic webhook deployments use the installation belonging to each DEPLO account and can access private repositories selected in that installation. Accounts without an installation mapping retain public-repository fallback behavior.
 
