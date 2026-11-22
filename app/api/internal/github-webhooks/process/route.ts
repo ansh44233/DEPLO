@@ -234,7 +234,7 @@ async function processNextDelivery(): Promise<NextResponse> {
         await inspectStaticDirectory(publishRoot);
 
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
-        await ensureCloudflarePagesProject(target.config, target.productionBranch);
+        const { productionUrl } = await ensureCloudflarePagesProject(target.config, target.productionBranch);
         const deployment = await deployStaticDirectory(publishRoot, target.productionBranch, target.config);
         const saved = await db<Project[]>(
           endpoint(config.baseUrl, "projects", {
@@ -246,7 +246,7 @@ async function processNextDelivery(): Promise<NextResponse> {
           {
             method: "PATCH",
             headers: { Prefer: "return=representation" },
-            body: JSON.stringify({ deployment_url: deployment.url, updated_at: new Date().toISOString() }),
+            body: JSON.stringify({ deployment_url: productionUrl, updated_at: new Date().toISOString() }),
           },
         );
         if (!saved.length) throw new Error("project_update_failed");

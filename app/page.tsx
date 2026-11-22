@@ -116,6 +116,13 @@ function timeAgo(value: string | number | Date): string {
   return new Date(time).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Older records saved a per-deployment URL (https://<hash>.<project>.pages.dev); show the stable project URL. */
+function stableSiteUrl(url: string | null): string | null {
+  if (!url) return url;
+  const match = /^https:\/\/[0-9a-f]{8}\.([a-z0-9-]+\.pages\.dev)\/?$/.exec(url);
+  return match ? "https://" + match[1] : url;
+}
+
 function hostOf(url: string): string {
   try { return new URL(url).host; } catch { return url; }
 }
@@ -241,7 +248,7 @@ export default function Home() {
           sourceType: project.source_type,
           repositoryUrl: project.repository_url,
           name: project.name,
-          domain: project.deployment_url || "Not deployed yet",
+          domain: stableSiteUrl(project.deployment_url) || "Not deployed yet",
           source: project.source_type === "github"
             ? project.repository_url?.replace("https://", "") || "GitHub repository"
             : project.source_type === "zip" ? "ZIP upload" : "index.html",
@@ -777,7 +784,7 @@ export default function Home() {
         slug: savedAccountProject.slug,
         sourceType: savedAccountProject.source_type,
         name: savedAccountProject.name,
-        domain: savedAccountProject.deployment_url || "Not deployed yet",
+        domain: stableSiteUrl(savedAccountProject.deployment_url) || "Not deployed yet",
         source: kind === "zip" ? "ZIP upload" : "index.html",
         branch: "—",
         status: savedAccountProject.deployment_url ? "Healthy" : "Connected",
