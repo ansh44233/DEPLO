@@ -10,6 +10,13 @@ const allCapabilities = {
   jobQueueControl: true,
 } as const;
 
+const allActions = [
+  "inspect_owned_resources",
+  "stop_owned_vm_if_present",
+  "remove_owned_workspace_if_present",
+  "requeue_job",
+] as const;
+
 test("worker remains disabled when every backend capability is absent", () => {
   const decision = evaluateSupervisorRecoveryWorker({
     hostInventory: false,
@@ -33,17 +40,54 @@ test("worker remains disabled when every backend capability is absent", () => {
 });
 
 test("capability flags alone never authorize actions or acknowledgements", () => {
-  const decision = evaluateSupervisorRecoveryWorker(allCapabilities, [
-    "inspect_owned_resources",
-    "stop_owned_vm_if_present",
-    "remove_owned_workspace_if_present",
-    "requeue_job",
-  ]);
+  const decision = evaluateSupervisorRecoveryWorker(allCapabilities, allActions);
   assert.equal(decision.ready, false);
   assert.equal(decision.executionEnabled, false);
   assert.equal(decision.claimedRecordMayBeAcknowledged, false);
   assert.deepEqual(decision.executableActions, []);
   assert.deepEqual(decision.blockers, ["recovery_executor_not_implemented"]);
+});
+
+test("rejects null, arrays, missing keys, extra keys, and non-boolean flags", () => {
+  const malformed = [
+    null,
+    [],
+    {},
+    { ...allCapabilities, unexpected: true },
+    { ...allCapabilities, vmControl: "yes" },
+  ];
+  for (const value of malformed) {
+    const decision = evaluateSupervisorRecoveryWorker(value, allActions);
+    assert.deepEqual(decision.blockers, [
+      "invalid_recovery_worker_input",
+      "recovery_executor_not_implemented",
+    ]);
+    assert.equal(decision.executionEnabled, false);
+    assert.deepEqual(decision.executableActions, []);
+  }
+});
+
+test("rejects unknown or malformed planned actions", () => {
+  for (const actions of [null, {}, ["stop_everything"], ["requeue_job", 7]]) {
+    const decision = evaluateSupervisorRecoveryWorker(allCapabilities, actions);
+    assert.deepEqual(decision.blockers, [
+      "invalid_recovery_worker_input",
+      "recovery_executor_not_implemented",
+    ]);
+    assert.equal(decision.claimedRecordMayBeAcknowledged, false);
+  }
+});
+
+test("throwing input accessors fail closed", () => {
+  const hostile = Object.defineProperty({}, "hostInventory", {
+    enumerable: true,
+    get() { throw new Error("must not escape"); },
+  });
+  const decision = evaluateSupervisorRecoveryWorker(hostile, allActions);
+  assert.deepEqual(decision.blockers, [
+    "invalid_recovery_worker_input",
+    "recovery_executor_not_implemented",
+  ]);
 });
 
 test("decision is immutable and independent of the supplied action list", () => {
