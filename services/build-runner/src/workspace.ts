@@ -1,5 +1,6 @@
 import { chmod, lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
+import { createWorkspaceLease } from "./workspace-lease";
 
 export type BuildResourcePolicy = Readonly<{
   timeoutMs: number; memoryMb: number; cpuCores: number; diskMb: number;
@@ -15,6 +16,7 @@ export const DEFAULT_BUILD_RESOURCE_POLICY: BuildResourcePolicy = Object.freeze(
 
 export type BuildWorkspace = Readonly<{
   id: string; root: string; sourceDir: string; outputDir: string; workDir: string;
+  heartbeat: () => Promise<void>;
   cleanup: () => Promise<void>;
 }>;
 
@@ -30,10 +32,7 @@ function assertSafeWorkspaceRoot(root: string): void {
   }
 }
 
-/**
- * Private disposable filesystem workspaces only. Concurrency quotas here are
- * process-local admission controls, not disk quotas or OS resource isolation.
- */
+/** Filesystem lifecycle only; quotas are process-local, not an OS sandbox. */
 export async function createWorkspaceManager(
   rootPath: string,
   options: { maxActiveWorkspaces?: number } = {},
@@ -69,13 +68,14 @@ export async function createWorkspaceManager(
           await mkdir(path, { mode: 0o700 });
           await chmod(path, 0o700);
         }
+        const lease = await createWorkspaceLease(workspaceRoot);
         let released = false;
         const release = () => {
           if (!released) { released = true; active -= 1; }
         };
         return Object.freeze({
           id: workspaceRoot.slice(canonicalRoot.length + 1), root: workspaceRoot,
-          sourceDir, outputDir, workDir,
+          sourceDir, outputDir, workDir, heartbeat: lease.heartbeat,
           async cleanup() {
             const info = await lstat(workspaceRoot!).catch(error => {
               if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;

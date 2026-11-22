@@ -1,5 +1,6 @@
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
+import { inspectWorkspaceLease } from "./workspace-lease";
 
 export const DEFAULT_WORKSPACE_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const MAX_WORKSPACE_CLEANUP_BATCH = 100;
@@ -10,7 +11,7 @@ export type WorkspaceCleanupResult = Readonly<{
   skipped: number;
 }>;
 
-/** Removes only old direct-child job-* directories; never follows symlinks. */
+/** Removes old job-* directories, honoring live leases and failing closed on invalid leases. */
 export async function cleanupStaleWorkspaces(
   rootPath: string,
   options: { now?: number; retentionMs?: number; batchLimit?: number } = {},
@@ -51,7 +52,13 @@ export async function cleanupStaleWorkspaces(
       skipped++;
       continue;
     }
-    if (now - info.mtimeMs < retentionMs) continue;
+    const lease = await inspectWorkspaceLease(path, now, retentionMs);
+    if (lease.state === "active" || lease.state === "invalid") {
+      skipped++;
+      continue;
+    }
+    const staleAt = lease.state === "expired" ? lease.lease.heartbeatAt : info.mtimeMs;
+    if (now - staleAt < retentionMs) continue;
     bytesFreed += await boundedDirectoryBytes(path);
     await rm(path, { recursive: true, force: true });
     workspacesRemoved++;
@@ -59,7 +66,6 @@ export async function cleanupStaleWorkspaces(
   return Object.freeze({ workspacesRemoved, bytesFreed, skipped });
 }
 
-/** Best-effort accounting with strict traversal bounds; cleanup does not depend on it. */
 async function boundedDirectoryBytes(root: string): Promise<number> {
   const pending: Array<{ path: string; depth: number }> = [{ path: root, depth: 0 }];
   let total = 0;
