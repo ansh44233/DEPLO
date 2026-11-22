@@ -4,10 +4,27 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "n
 import { extractZipSafely } from "../../../lib/uploads/extract-zip";
 import { cleanupStaleWorkspaces } from "./workspace-janitor";
 import { join, isAbsolute, resolve } from "node:path";
+import { isIP } from "node:net";
 
 const MAX_ARCHIVE = 25 * 1024 * 1024;
 const MAX_BODY = MAX_ARCHIVE + 64 * 1024;
-type RunnerConfig = { token: string; dataDir: string; workspaceDir?: string };
+type RunnerConfig = { token: string; dataDir: string; workspaceDir?: string; bindHost?: string };
+
+/** Only loopback and private/link-local IPs are valid runner bind addresses. */
+export function validateRunnerBindHost(host: string): string {
+  if (host === "localhost") return host;
+  const version = isIP(host);
+  if (version === 4) {
+    const octets = host.split(".").map(Number);
+    const [a, b] = octets;
+    if (a === 10 || a === 127 || a === 192 && b === 168 || a === 172 && b >= 16 && b <= 31 || a === 169 && b === 254) return host;
+  }
+  if (version === 6) {
+    const normalized = host.toLowerCase();
+    if (normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || /^fe[89ab][0-9a-f]:/.test(normalized)) return host;
+  }
+  throw new Error("runner_bind_host_must_be_loopback_or_private");
+}
 type Part = { name: string; filename?: string; bytes: Buffer };
 
 function json(res: ServerResponse, status: number, body: Record<string, unknown>) {
@@ -159,7 +176,8 @@ export function createRunnerServer(config: RunnerConfig) {
   if (config.token.length < 32) throw new Error("Runner token must contain at least 32 characters.");
   if (!isAbsolute(config.dataDir)) throw new Error("Runner data directory must be absolute.");
   if (config.workspaceDir && !isAbsolute(config.workspaceDir)) throw new Error("Runner workspace directory must be absolute.");
-  config = { ...config, dataDir: resolve(config.dataDir), workspaceDir: config.workspaceDir ? resolve(config.workspaceDir) : undefined };
+  const bindHost = validateRunnerBindHost(config.bindHost ?? "127.0.0.1");
+  config = { ...config, dataDir: resolve(config.dataDir), workspaceDir: config.workspaceDir ? resolve(config.workspaceDir) : undefined, bindHost };
   const server = createServer({
     headersTimeout: 15_000, requestTimeout: 120_000, keepAliveTimeout: 5_000, maxHeaderSize: 16 * 1024,
   }, async (req, res) => {
@@ -221,6 +239,7 @@ if (process.env.DEPLO_RUNNER_TOKEN && process.env.DEPLO_RUNNER_DATA_DIR) {
     token: process.env.DEPLO_RUNNER_TOKEN,
     dataDir: process.env.DEPLO_RUNNER_DATA_DIR,
     workspaceDir: process.env.DEPLO_RUNNER_WORKSPACE_DIR,
+    bindHost: process.env.DEPLO_RUNNER_HOST ?? "127.0.0.1",
   });
-  server.listen(port, "0.0.0.0");
+  server.listen(port, process.env.DEPLO_RUNNER_HOST ?? "127.0.0.1");
 }
