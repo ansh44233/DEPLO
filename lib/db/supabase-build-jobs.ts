@@ -10,13 +10,14 @@ export type OwnedBuildJob = {
   runner_job_id?: string | null; runner_status?: "queued" | "running" | "succeeded" | null;
   runner_poll_after?: string | null; artifact_id?: string | null;
   artifact_file_count?: number | null; artifact_bytes?: number | null;
+  artifact_publish_claimed_at?: string | null;
 };
 export class BuildJobStoreError extends Error {
   constructor(message: string, public readonly status: number) { super(message); this.name = "BuildJobStoreError"; }
 }
 type StoreConfig = { baseUrl: string; serviceKey: string };
 type Fetcher = typeof fetch;
-const FIELDS = "id,project_id,owner_github_id,source_commit_sha,framework,package_manager,output_directory,status,attempt_count,max_attempts,available_at,claimed_at,error_code,created_at,updated_at,runner_job_id,runner_status,runner_poll_after,artifact_id,artifact_file_count,artifact_bytes";
+const FIELDS = "id,project_id,owner_github_id,source_commit_sha,framework,package_manager,output_directory,status,attempt_count,max_attempts,available_at,claimed_at,error_code,created_at,updated_at,runner_job_id,runner_status,runner_poll_after,artifact_id,artifact_file_count,artifact_bytes,artifact_publish_claimed_at";
 function readConfig(env: Record<string, string | undefined>): StoreConfig | null {
   const rawUrl = env.SUPABASE_URL?.trim(), serviceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!rawUrl || !serviceKey) return null;
@@ -70,6 +71,10 @@ async function rpc<T>(name: string, body: Record<string, unknown>, env: Record<s
 }
 export async function claimNextBuildJob(env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<OwnedBuildJob | null> {
   const rows = await rpc<OwnedBuildJob[]>("claim_next_deplo_build_job", {}, env, fetcher);
+  return Array.isArray(rows) ? rows[0] ?? null : null;
+}
+export async function claimNextArtifactPublishJob(env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<OwnedBuildJob | null> {
+  const rows = await rpc<OwnedBuildJob[]>("claim_next_deplo_artifact_publish_job", {}, env, fetcher);
   return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 export async function claimNextRunnerPollJob(env: Record<string, string | undefined> = process.env, fetcher: Fetcher = fetch): Promise<OwnedBuildJob | null> {
