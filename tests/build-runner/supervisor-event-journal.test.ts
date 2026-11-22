@@ -70,7 +70,7 @@ test("rejects invalid IDs, non-canonical timestamps and out-of-order events", ()
   }), /invalid_supervisor_event_id/);
   assert.throws(() => appendSupervisorEvent(journal, {
     eventId: "event_0001", event: "prepare", occurredAt: "not-a-date",
-  }), /invalid_supervisor_journal_snapshot/);
+  }), /invalid_supervisor_event_timestamp/);
   const first = appendSupervisorEvent(journal, {
     eventId: "event_0001", event: "prepare", occurredAt: "2026-11-22T00:00:02.000Z",
   });
