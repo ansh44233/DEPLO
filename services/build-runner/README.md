@@ -47,3 +47,10 @@ The planner is data-only. It does not persist journals, inspect host resources, 
 Migration `0010_durable_supervisor_recovery.sql` adds a service-role-only recovery ledger keyed by `(job_id, recovery_key)`. It stores the immutable journal sequence, observed state, disposition, ordered action list, progress cursor, lease timestamp, and a sanitized blocking error. Repeating the same key and plan is idempotent; reusing the key for a different plan is rejected. A worker can atomically claim pending or expired records, acknowledge one action at a time with an expected cursor, or mark an attempt blocked.
 
 This is durable bookkeeping and concurrency control, **not** a recovery executor. The RPCs do not inspect host resources, authenticate VM/workspace ownership, stop VMs, delete workspaces, or requeue builds. A future trusted worker must independently complete and verify each host action before acknowledging it. Do not treat a completed ledger record as proof of isolation or cleanup. Build execution remains disabled.
+
+
+## Recovery ledger storage adapter
+
+`lib/db/supabase-supervisor-recovery.ts` exposes server-side service-role RPC wrappers for creating an idempotent recovery plan, claiming a pending/expired attempt, acknowledging one action, and blocking an attempt. The claim's exact `claimed_at` timestamp is a fencing token and must be passed to every acknowledgement. Do not substitute a newly generated timestamp.
+
+The adapter is not wired to the build worker yet. No host recovery action is executed or acknowledged by this adapter. Apply migration `0010_durable_supervisor_recovery.sql` before using these functions. Keep all calls server-side; never expose the Supabase service-role key to a browser.
