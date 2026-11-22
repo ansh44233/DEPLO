@@ -128,3 +128,27 @@ test("does not expose internal filesystem paths when artifact processing fails",
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("redacts runner transport errors that may contain private endpoint details", async () => {
+  const root = await mkdtemp(join(tmpdir(), "deplo-artifact-transport-redaction-"));
+  const privateDetail = `request to https://runner.example/private?token=${env.DEPLO_BUILD_RUNNER_TOKEN} failed at /srv/deplo/private/work`;
+  try {
+    await assert.rejects(
+      downloadAndValidateBuildArtifact(metadata, join(root, "work"), env, async () => {
+        throw new Error(privateDetail);
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof BuildArtifactError);
+        assert.equal(error.code, "invalid_artifact");
+        assert.equal(error.message, "The build artifact could not be validated due to an internal processing error.");
+        assert.equal(error.message.includes(env.DEPLO_BUILD_RUNNER_TOKEN), false);
+        assert.equal(error.message.includes("/srv/deplo/private/work"), false);
+        assert.equal(error.message.includes("runner.example"), false);
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
