@@ -1,6 +1,7 @@
 import { chmod, lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { createWorkspaceLease } from "./workspace-lease";
+import { acquireWorkspaceOperationLock } from "./workspace-operation-lock";
 
 export type BuildResourcePolicy = Readonly<{
   timeoutMs: number; memoryMb: number; cpuCores: number; diskMb: number;
@@ -81,14 +82,22 @@ export async function createWorkspaceManager(
               if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
               throw error;
             });
-            if (info && (!info.isDirectory() || info.isSymbolicLink() ||
+            if (!info) { release(); return; }
+            if (!info.isDirectory() || info.isSymbolicLink() ||
                 resolve(workspaceRoot!) !== workspaceRoot! ||
                 !workspaceRoot!.startsWith(canonicalRoot + "/") ||
-                !/^job-[A-Za-z0-9_-]+$/.test(workspaceRoot!.slice(canonicalRoot.length + 1)))) {
+                !/^job-[A-Za-z0-9_-]+$/.test(workspaceRoot!.slice(canonicalRoot.length + 1))) {
               throw new Error("refusing_unsafe_workspace_cleanup");
             }
-            if (info) await rm(workspaceRoot!, { recursive: true, force: true });
-            release();
+            const releaseLock = await acquireWorkspaceOperationLock(workspaceRoot!);
+            try {
+              await rm(workspaceRoot!, { recursive: true, force: true });
+              release();
+            } finally {
+              await releaseLock().catch(error => {
+                if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+              });
+            }
           },
         });
       } catch (error) {

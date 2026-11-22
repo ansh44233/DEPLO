@@ -1,6 +1,7 @@
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { inspectWorkspaceLease } from "./workspace-lease";
+import { acquireWorkspaceOperationLock, isWorkspaceOperationLockBusy } from "./workspace-operation-lock";
 
 export const DEFAULT_WORKSPACE_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const MAX_WORKSPACE_CLEANUP_BATCH = 100;
@@ -52,16 +53,30 @@ export async function cleanupStaleWorkspaces(
       skipped++;
       continue;
     }
-    const lease = await inspectWorkspaceLease(path, now, retentionMs);
-    if (lease.state === "active" || lease.state === "invalid") {
-      skipped++;
-      continue;
+    let releaseLock: (() => Promise<void>) | undefined;
+    try {
+      releaseLock = await acquireWorkspaceOperationLock(path);
+    } catch (error) {
+      if (isWorkspaceOperationLockBusy(error)) { skipped++; continue; }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
     }
-    const staleAt = lease.state === "expired" ? lease.lease.heartbeatAt : info.mtimeMs;
-    if (now - staleAt < retentionMs) continue;
-    bytesFreed += await boundedDirectoryBytes(path);
-    await rm(path, { recursive: true, force: true });
-    workspacesRemoved++;
+    try {
+      const lease = await inspectWorkspaceLease(path, now, retentionMs);
+      if (lease.state === "active" || lease.state === "invalid") {
+        skipped++;
+        continue;
+      }
+      const staleAt = lease.state === "expired" ? lease.lease.heartbeatAt : info.mtimeMs;
+      if (now - staleAt < retentionMs) continue;
+      bytesFreed += await boundedDirectoryBytes(path);
+      await rm(path, { recursive: true, force: true });
+      workspacesRemoved++;
+    } finally {
+      await releaseLock().catch(error => {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      });
+    }
   }
   return Object.freeze({ workspacesRemoved, bytesFreed, skipped });
 }
