@@ -52,7 +52,7 @@ export function planSupervisorCrashRecovery(
     return Object.freeze({
       disposition: "requeue_after_reconciliation",
       observedState: journal.state,
-      actions: Object.freeze([...commonActions, "requeue_job"]),
+      actions: Object.freeze([...commonActions, "requeue_job" as const]),
       automaticBuildResume: false,
     });
   }
@@ -69,7 +69,7 @@ export function planSupervisorCrashRecovery(
   return Object.freeze({
     disposition: "fail_after_reconciliation",
     observedState: journal.state,
-    actions: Object.freeze([...commonActions, "record_recovery_failure"]),
+    actions: Object.freeze([...commonActions, "record_recovery_failure" as const]),
     automaticBuildResume: false,
   });
 }
