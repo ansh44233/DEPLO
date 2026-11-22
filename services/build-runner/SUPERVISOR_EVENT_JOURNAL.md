@@ -12,9 +12,18 @@ from/to states.
 - Reusing an event ID with different event data is rejected.
 - Timestamps must be canonical ISO UTC strings and strictly increase.
 - State transitions are validated by the lifecycle contract.
+- Before every append, the complete supplied snapshot is validated by replaying
+  its event chain from the initial `queued` state.
+- Snapshot validation rejects inconsistent sequence/state values, broken
+  from/to transitions, duplicate event IDs, non-increasing timestamps,
+  unknown event/evidence fields, and non-boolean evidence values.
 - Returned snapshots, event arrays, entries and evidence objects are frozen.
 
 ## Important limitations
+
+Snapshot validation proves only internal consistency. It does not prove that
+evidence is truthful, that host controls actually ran, or that the snapshot was
+persisted without tampering between validation and use.
 
 This is a pure in-memory data contract. It is not durable storage, a lock,
 a transactional database, or a distributed event log. Concurrent writers must
