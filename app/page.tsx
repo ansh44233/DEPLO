@@ -27,6 +27,7 @@ type DeploymentReadiness = {
 type CloudflareDeploymentLog = { timestamp: string | null; line: string };
 type CustomDomain = { id: string; name: string; status: string; validation: { method: "http" | "txt" | null; status: string; error: string | null; txtName: string | null; txtValue: string | null }; verification: { status: string; error: string | null }; createdAt: string | null };
 type WebhookDelivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; status: "received" | "processing" | "deployed" | "ignored" | "failed"; received_at: string; processed_at: string | null; attempt_count: number; available_at: string; last_error_code: string | null; };
+type RecoveryAttempt = { id: string; job_id: string; recovery_key: string; journal_sequence: number; observed_state: string; disposition: string; actions: string[]; next_action_index: number; status: "pending" | "reconciling" | "completed" | "blocked"; claimed_at: string | null; error_code: string | null; created_at: string; updated_at: string; };
 
 type CloudflareDeployment = {
   id: string;
@@ -91,6 +92,9 @@ export default function Home() {
   const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
   const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookError, setWebhookError] = useState("");
+  const [recoveryAttempts, setRecoveryAttempts] = useState<RecoveryAttempt[]>([]);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
   const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
   const [githubAppStatus, setGithubAppStatus] = useState<GitHubAppStatus | null>(null);
   const [githubAppStatusLoading, setGithubAppStatusLoading] = useState(false);
@@ -339,6 +343,32 @@ export default function Home() {
   useEffect(() => {
     void refreshWebhookDeliveries(selected.id, Boolean(signedInUser) && selected.sourceType === "github");
   }, [refreshWebhookDeliveries, selected.id, selected.sourceType, signedInUser]);
+
+  const refreshRecoveryAttempts = useCallback(async (projectId?: string, authenticated = false) => {
+    if (!authenticated || !projectId) {
+      setRecoveryAttempts([]);
+      setRecoveryError("");
+      setRecoveryLoading(false);
+      return;
+    }
+    setRecoveryLoading(true);
+    setRecoveryError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/recovery-attempts", { cache: "no-store" });
+      const data = await response.json() as { attempts?: RecoveryAttempt[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Recovery history is unavailable.");
+      setRecoveryAttempts(Array.isArray(data.attempts) ? data.attempts : []);
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : "Recovery history is unavailable.");
+      setRecoveryAttempts([]);
+    } finally {
+      setRecoveryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshRecoveryAttempts(selected.id, Boolean(signedInUser));
+  }, [refreshRecoveryAttempts, selected.id, signedInUser]);
 
   async function deploySelectedProject() {
     if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
@@ -658,6 +688,7 @@ export default function Home() {
         <div className="side-label side-label-spaced">DEVELOP</div>
         <nav className="side-nav" aria-label="Developer navigation">
           <button className={`nav-item ${activeNav === "Domains" ? "active" : ""}`} onClick={() => setActiveNav("Domains")}><Globe2 size={17} /><span>Domains</span></button>
+          <button className={"nav-item " + (activeNav === "Recovery" ? "active" : "")} onClick={() => setActiveNav("Recovery")}><ShieldCheck size={17} /><span>Recovery</span><span className="nav-count">{recoveryAttempts.length}</span></button>
           <button className="nav-item" onClick={() => setNotice("Storage settings are coming in a later release.")}><HardDrive size={17} /><span>Storage</span></button>
           <button className="nav-item" onClick={() => setNotice("Environment variables are planned for the next milestone.")}><Settings2 size={17} /><span>Environment</span></button>
         </nav>
@@ -788,6 +819,34 @@ export default function Home() {
                     <div className="domain-status-line">Validation: {domain.validation.status} · Certificate: {domain.verification.status}</div>
                   </article>)}</div>}
               </div>}
+          </section>
+
+          <section className="panel webhook-panel">
+            <div className="panel-heading">
+              <div><h2>Build recovery history</h2><p>{recoveryLoading ? "Loading recovery records…" : recoveryError ? recoveryError : "Read-only recovery ledger for this project's build jobs. Records describe planned reconciliation, not proof that host actions ran."}</p></div>
+              <button className="text-button" onClick={() => void refreshRecoveryAttempts(selected.id, Boolean(signedInUser))} disabled={recoveryLoading || !selected.id || !signedInUser}><RefreshCw size={14} className={recoveryLoading ? "spin" : ""} /> {recoveryLoading ? "Refreshing…" : "Refresh"}</button>
+            </div>
+            {!signedInUser ? <div className="empty-state">Sign in with GitHub to view recovery history for your projects.</div>
+              : recoveryError ? <div className="webhook-error" role="alert">{recoveryError}</div>
+              : recoveryLoading && recoveryAttempts.length === 0 ? <div className="empty-state">Loading recovery history…</div>
+              : recoveryAttempts.length ? <div className="webhook-list">
+                {recoveryAttempts.map((attempt) => {
+                  const statusClass = attempt.status === "completed" ? "healthy" : attempt.status === "blocked" ? "failed" : attempt.status === "reconciling" ? "building" : "queued";
+                  return <div className="webhook-row" key={attempt.id}>
+                    <div className="webhook-row-main">
+                      <span className={"health-tag " + statusClass}><i />{attempt.status}</span>
+                      <strong>{attempt.disposition.replaceAll("_", " ")}</strong>
+                      <span className="branch-chip">State: {attempt.observed_state}</span>
+                      <span className="branch-chip">Step {Math.min(attempt.next_action_index, attempt.actions.length)} / {attempt.actions.length}</span>
+                      <code>{attempt.recovery_key}</code>
+                      {attempt.error_code && <span className="webhook-error-code">Reason: {attempt.error_code}</span>}
+                      <small>Updated {new Date(attempt.updated_at).toLocaleString()}</small>
+                    </div>
+                  </div>;
+                })}
+              </div>
+              : <div className="empty-state">No recovery attempts have been recorded for this project's build jobs.</div>}
+            <p className="page-subtitle">Safety: this page is observational only. DEPLO does not yet execute recovery actions or enable untrusted framework builds.</p>
           </section>
 
           <section className="panel webhook-panel">

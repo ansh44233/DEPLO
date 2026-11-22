@@ -235,3 +235,51 @@ export async function blockDurableSupervisorRecovery(
   if (!record) throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned no record.", 502);
   return record;
 }
+
+
+/**
+ * List recovery history only for job IDs already verified against the signed-in
+ * owner's project. The caller must never pass arbitrary, unowned job IDs.
+ */
+export async function listDurableSupervisorRecoveriesForJobs(
+  jobIds: readonly string[],
+  env: Record<string, string | undefined> = process.env,
+  fetcher: Fetcher = fetch,
+): Promise<DurableSupervisorRecoveryRecord[]> {
+  if (jobIds.length === 0) return [];
+  if (jobIds.length > 50 || jobIds.some((id) => !UUID.test(id))) {
+    throw new SupervisorRecoveryStoreError("Invalid recovery history query.", 400);
+  }
+  const config = configured(env);
+  const url = new URL("/rest/v1/build_job_recovery_attempts", config.baseUrl);
+  url.searchParams.set("select", RECORD_KEYS.join(","));
+  url.searchParams.set("job_id", "in.(" + jobIds.join(",") + ")");
+  url.searchParams.set("order", "created_at.desc");
+  url.searchParams.set("limit", "100");
+  let response: Response;
+  try {
+    response = await fetcher(url, {
+      method: "GET",
+      headers: {
+        apikey: config.serviceKey,
+        Authorization: "Bearer " + config.serviceKey,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage is temporarily unavailable.", 502);
+  }
+  if (!response.ok) {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage could not complete the request.", 502);
+  }
+  let rows: unknown;
+  try { rows = await response.json(); } catch {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
+  }
+  if (!Array.isArray(rows)) {
+    throw new SupervisorRecoveryStoreError("Supervisor recovery storage returned an invalid response.", 502);
+  }
+  return rows.map(parseRecord);
+}
