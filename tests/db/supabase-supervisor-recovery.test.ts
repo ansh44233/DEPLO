@@ -106,3 +106,30 @@ test("does not leak provider response details on failure", async () => {
     (error: unknown) => error instanceof SupervisorRecoveryStoreError && !error.message.includes("private provider diagnostic"),
   );
 });
+
+
+test("rejects malformed or internally inconsistent recovery rows", async () => {
+  const invalidRows = [
+    { ...record, extra_secret: "unexpected" },
+    { ...record, actions: ["inspect_owned_resources", "requeue_job"] },
+    { ...record, status: "reconciling", claimed_at: null },
+    { ...record, status: "completed", next_action_index: 0 },
+    { ...record, status: "blocked", error_code: null },
+    { ...record, created_at: "not-a-timestamp" },
+    { ...record, updated_at: "2026-11-21T00:00:00.000Z" },
+  ];
+
+  for (const invalid of invalidRows) {
+    await assert.rejects(
+      claimNextDurableSupervisorRecovery(env, fetcher([invalid])),
+      (error: unknown) => error instanceof SupervisorRecoveryStoreError && error.status === 502,
+    );
+  }
+});
+
+test("freezes validated records and action arrays returned by the adapter", async () => {
+  const result = await claimNextDurableSupervisorRecovery(env, fetcher([record]));
+  assert.ok(result);
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.actions), true);
+});
