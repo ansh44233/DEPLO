@@ -1,6 +1,7 @@
 -- Bounded retention cleanup for the recovery inventory nonce ledger.
--- Keep consumed and expired challenges for seven days for operational audit,
--- then allow a trusted service-role maintenance task to prune small batches.
+-- Retain each row for at least seven days after it is consumed, or after it
+-- expires when it was never consumed. A trusted service-role task may then
+-- prune small batches.
 create or replace function public.prune_deplo_recovery_inventory_nonces(
   p_batch_size integer default 200
 )
@@ -19,8 +20,7 @@ begin
   with eligible as (
     select nonce
       from public.build_recovery_inventory_nonces
-     where expires_at < now() - interval '7 days'
-        or consumed_at < now() - interval '7 days'
+     where coalesce(consumed_at, expires_at) < now() - interval '7 days'
      order by created_at asc
      limit p_batch_size
      for update skip locked
