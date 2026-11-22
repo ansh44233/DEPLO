@@ -19,6 +19,10 @@ The process exposes `GET /healthz` and authenticated `POST /v1/sources`. Source 
 
 The source directory must be on a private persistent filesystem with access restricted to the runner service account. Do not mount it into build containers.
 
+## Operator diagnostics
+
+`GET /v1/diagnostics` requires the runner bearer token. It reports the Node runtime platform/architecture, whether source and workspace storage are configured, and explicit execution readiness flags. The endpoint deliberately reports `backendConfigured: false`, `resourceLimitsEnforced: false`, `networkEgressDenied: false`, and `buildsEnabled: false` until a real isolation backend is installed and verified. It does not expose filesystem paths, credentials, or environment values. This is an operator inventory, not a security attestation.
+
 ## Maintenance
 
 An authenticated `POST /v1/maintenance/cleanup` removes source archives older than seven days and matching idempotency records (maximum 100 per call). If `DEPLO_RUNNER_WORKSPACE_DIR` is configured, it also removes up to 100 stale `job-*` workspace directories older than 24 hours. Symlink roots and entries are rejected or skipped, unrelated files are untouched, and cleanup returns removed counts and bytes freed. Per-workspace atomic operation locks coordinate janitor deletion with heartbeat and managed cleanup on the same filesystem. Stale locks left by crashed processes are skipped for manual inspection rather than force-reclaimed. Schedule this endpoint periodically from trusted infrastructure. The workspace retention must remain substantially longer than the maximum enforced build wall-clock duration; do not run untrusted builds without a real supervisor and sandbox.
