@@ -31,7 +31,7 @@ function isLease(value: unknown, workspaceId: string): value is WorkspaceLease {
     item.createdAt <= item.heartbeatAt;
 }
 
-/** Creates a private lease marker and returns an atomic heartbeat operation. */
+/** Creates a private lease marker and returns a serialized, ownership-checked heartbeat operation. */
 export async function createWorkspaceLease(workspaceRoot: string, now = Date.now()) {
   const workspaceId = basename(workspaceRoot);
   if (!/^job-[A-Za-z0-9_-]+$/.test(workspaceId) || !Number.isFinite(now)) {
@@ -46,26 +46,38 @@ export async function createWorkspaceLease(workspaceRoot: string, now = Date.now
   const path = join(workspaceRoot, LEASE_FILE);
   await writeFile(path, JSON.stringify({ version: 1, ...lease }), { flag: "wx", mode: 0o600 });
 
+  let heartbeatQueue: Promise<void> = Promise.resolve();
   return Object.freeze({
     leaseId,
-    async heartbeat(at = Date.now()): Promise<void> {
-      if (!Number.isFinite(at) || at < lease.createdAt) throw new Error("invalid_workspace_heartbeat_time");
-      const currentRoot = await lstat(workspaceRoot);
-      if (!currentRoot.isDirectory() || currentRoot.isSymbolicLink()) {
-        throw new Error("workspace_lease_root_must_be_real_directory");
-      }
-      const currentInfo = await lstat(path);
-      if (!currentInfo.isFile() || currentInfo.isSymbolicLink()) {
-        throw new Error("workspace_lease_marker_unavailable");
-      }
-      const next = { version: 1, leaseId, workspaceId, createdAt: lease.createdAt, heartbeatAt: at };
-      const temporary = join(workspaceRoot, ".lease-" + randomUUID() + ".tmp");
-      try {
-        await writeFile(temporary, JSON.stringify(next), { flag: "wx", mode: 0o600 });
-        await rename(temporary, path);
-      } finally {
-        await rm(temporary, { force: true }).catch(() => undefined);
-      }
+    heartbeat(at = Date.now()): Promise<void> {
+      const operation = heartbeatQueue.then(async () => {
+        if (!Number.isFinite(at) || at < lease.createdAt) throw new Error("invalid_workspace_heartbeat_time");
+        const currentRoot = await lstat(workspaceRoot);
+        if (!currentRoot.isDirectory() || currentRoot.isSymbolicLink()) {
+          throw new Error("workspace_lease_root_must_be_real_directory");
+        }
+        const currentInfo = await lstat(path);
+        if (!currentInfo.isFile() || currentInfo.isSymbolicLink() || currentInfo.size > MAX_LEASE_BYTES) {
+          throw new Error("workspace_lease_marker_unavailable");
+        }
+        let currentValue: unknown;
+        try { currentValue = JSON.parse(await readFile(path, "utf8")); }
+        catch { throw new Error("workspace_lease_marker_invalid"); }
+        if (!isLease(currentValue, workspaceId) || currentValue.leaseId !== leaseId) {
+          throw new Error("workspace_lease_ownership_lost");
+        }
+        if (at < currentValue.heartbeatAt) throw new Error("workspace_heartbeat_out_of_order");
+        const next = { version: 1, leaseId, workspaceId, createdAt: lease.createdAt, heartbeatAt: at };
+        const temporary = join(workspaceRoot, ".lease-" + randomUUID() + ".tmp");
+        try {
+          await writeFile(temporary, JSON.stringify(next), { flag: "wx", mode: 0o600 });
+          await rename(temporary, path);
+        } finally {
+          await rm(temporary, { force: true }).catch(() => undefined);
+        }
+      });
+      heartbeatQueue = operation.catch(() => undefined);
+      return operation;
     },
   });
 }
