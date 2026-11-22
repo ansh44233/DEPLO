@@ -2,8 +2,13 @@ import { stat, readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 
 export type SandboxHostPreflightOptions = Readonly<{
-  platform?: string; kvmDevicePath?: string; firecrackerBinaryPath?: string;
-  kernelImagePath?: string; initrdPath?: string; cgroupControllersPath?: string;
+  platform?: string;
+  kvmDevicePath?: string;
+  firecrackerBinaryPath?: string;
+  jailerBinaryPath?: string;
+  kernelImagePath?: string;
+  initrdPath?: string;
+  cgroupControllersPath?: string;
 }>;
 
 async function inspectPath(path: string | undefined, kind: "file" | "executable" | "device"): Promise<boolean> {
@@ -22,13 +27,22 @@ export async function inspectSandboxHost(options: SandboxHostPreflightOptions = 
   const linux = platform === "linux";
   let kvmDeviceAvailable = false;
   let firecrackerBinaryAvailable = false;
+  let jailerBinaryAvailable = false;
   let kernelImageAvailable = false;
   let initrdAvailable = false;
   let controllers: string[] = [];
   if (linux) {
-    [kvmDeviceAvailable, firecrackerBinaryAvailable, kernelImageAvailable, initrdAvailable, controllers] = await Promise.all([
+    [
+      kvmDeviceAvailable,
+      firecrackerBinaryAvailable,
+      jailerBinaryAvailable,
+      kernelImageAvailable,
+      initrdAvailable,
+      controllers,
+    ] = await Promise.all([
       inspectPath(options.kvmDevicePath ?? process.env.DEPLO_FIRECRACKER_KVM_PATH ?? "/dev/kvm", "device"),
       inspectPath(options.firecrackerBinaryPath ?? process.env.DEPLO_FIRECRACKER_BIN, "executable"),
+      inspectPath(options.jailerBinaryPath ?? process.env.DEPLO_FIRECRACKER_JAILER_BIN, "executable"),
       inspectPath(options.kernelImagePath ?? process.env.DEPLO_FIRECRACKER_KERNEL, "file"),
       inspectPath(options.initrdPath ?? process.env.DEPLO_FIRECRACKER_INITRD, "file"),
       (async () => {
@@ -44,11 +58,23 @@ export async function inspectSandboxHost(options: SandboxHostPreflightOptions = 
   if (!linux) blockers.push("linux_host_required");
   if (!kvmDeviceAvailable) blockers.push("kvm_unavailable");
   if (!firecrackerBinaryAvailable) blockers.push("firecracker_binary_unavailable");
+  if (!jailerBinaryAvailable) blockers.push("firecracker_jailer_unavailable");
   if (!kernelImageAvailable) blockers.push("kernel_image_unavailable");
   if (!initrdAvailable) blockers.push("initrd_unavailable");
   if (!cgroupV2RequiredControllersAvailable) blockers.push("cgroup_v2_controllers_unavailable");
   blockers.push("firecracker_execution_backend_not_implemented");
-  return { linuxHost: linux, kvmDeviceAvailable, firecrackerBinaryAvailable, kernelImageAvailable,
-    initrdAvailable, cgroupV2RequiredControllersAvailable, backendImplemented: false,
-    resourceLimitsEnforced: false, networkEgressDenied: false, buildsEnabled: false, blockers };
+  return {
+    linuxHost: linux,
+    kvmDeviceAvailable,
+    firecrackerBinaryAvailable,
+    jailerBinaryAvailable,
+    kernelImageAvailable,
+    initrdAvailable,
+    cgroupV2RequiredControllersAvailable,
+    backendImplemented: false,
+    resourceLimitsEnforced: false,
+    networkEgressDenied: false,
+    buildsEnabled: false,
+    blockers,
+  };
 }
