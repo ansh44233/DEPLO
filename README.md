@@ -126,7 +126,7 @@ Account-owned deployment endpoints support public and authorized private GitHub 
 
 ## Cloudflare Pages static deployment (early milestone)
 
-The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through Wrangler.
+The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through the Cloudflare Pages Direct Upload API. This legacy endpoint stores uploads on local disk and is disabled on Vercel.
 
 Before using it:
 1. Create a Cloudflare API token with **Pages Write** permission.
@@ -143,7 +143,7 @@ curl -X POST "http://localhost:3000/api/uploads/<upload-id>/deploy" \
   -d '{"projectSlug":"my-website"}'
 ```
 
-DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a production branch (for example, `site-my-website`) inside that project's isolated Cloudflare Pages project. The returned URL comes from Wrangler/Cloudflare.
+DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a production branch (for example, `site-my-website`) inside that project's isolated Cloudflare Pages project. The returned URL comes from Cloudflare.
 
 This integration requires a configured Cloudflare account and a pre-created Pages project. No live provider deployment has been performed from this repository yet. Per-user accounts, project ownership, usage billing, cleanup, build execution, GitHub private-repository OAuth, and custom domains remain future work.
 
@@ -159,6 +159,10 @@ The archive safety policy defines path traversal checks and conservative limits 
 - Live build logs
 - Per-project environment variables
 - Custom domains and HTTPS (later phase)
+
+## Hosting DEPLO on Vercel
+
+DEPLO itself can be hosted on Vercel; the sites it publishes still go to Cloudflare Pages. Publishing uses the Cloudflare Pages Direct Upload API (no CLI process), background workers are triggered after each request with Vercel Cron as a backstop, and dashboard uploads are capped at 4 MB on Vercel because of its request-body limit. See the step-by-step guide in [docs/VERCEL.md](docs/VERCEL.md).
 
 ## Local development
 

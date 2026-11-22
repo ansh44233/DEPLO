@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "crons": [
+    { "path": "/api/internal/github-webhooks/process", "schedule": "17 3 * * *" },
+    { "path": "/api/internal/build-jobs/process", "schedule": "47 3 * * *" }
+  ]
+}

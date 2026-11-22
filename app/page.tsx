@@ -22,6 +22,7 @@ type DeploymentReadiness = {
   legacySharedProjectConfigured: boolean;
   ready: boolean;
   missing: string[];
+  maxUploadBytes?: number | null;
 };
 
 type CloudflareDeploymentLog = { timestamp: string | null; line: string };
@@ -677,7 +678,9 @@ export default function Home() {
   async function startUpload(file: File | undefined, kind: "zip" | "html") {
     if (!file) return;
     setUploadError("");
-    const validationError = validateUploadSelection(file.name, file.size, kind);
+    const hostLimit = readiness?.maxUploadBytes;
+    const validationError = validateUploadSelection(file.name, file.size, kind) ??
+      (hostLimit && file.size > hostLimit ? "This DEPLO host accepts uploads up to " + Math.floor(hostLimit / 1024 / 1024) + " MB. Deploy larger sites from GitHub instead." : null);
     if (validationError) {
       setUploadError(validationError);
       setFileName("");
@@ -751,7 +754,8 @@ export default function Home() {
         method: "POST",
         body: form,
       });
-      const uploadData = await uploadResponse.json() as { url?: string; error?: string };
+      if (uploadResponse.status === 413) throw new Error("This upload is larger than the host allows. Deploy larger sites from GitHub instead.");
+      const uploadData = await uploadResponse.json().catch(() => ({})) as { url?: string; error?: string };
       if (!uploadResponse.ok) throw new Error(uploadData.error || "Upload deployment failed.");
 
       const deployedProject: Project = {
