@@ -118,6 +118,6 @@ export async function downloadAndValidateBuildArtifact(
     await rm(extractionDirectory, { recursive: true, force: true }).catch(() => undefined);
     await rm(archivePath, { force: true }).catch(() => undefined);
     if (error instanceof BuildArtifactError) throw error;
-    throw new BuildArtifactError(error instanceof Error ? error.message : "The build artifact could not be validated.", "invalid_artifact");
+    throw new BuildArtifactError("The build artifact could not be validated due to an internal processing error.", "invalid_artifact");
   }
 }

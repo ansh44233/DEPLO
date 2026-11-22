@@ -20,8 +20,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function textOrNull(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
+function textOrNull(value: unknown, maxLength = 256): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength ? value : null;
+}
+
+function boundedText(value: unknown, maxLength: number): string | null {
+  return typeof value === "string" && value.length > 0 ? value.slice(0, maxLength) : null;
 }
 
 function normalizeStatus(value: unknown): CloudflareDeployment["status"] {
@@ -40,23 +44,23 @@ export function normalizeCloudflareDeployments(value: unknown): CloudflareDeploy
   if (!Array.isArray(value)) return [];
   return value.slice(0, 20).flatMap((item) => {
     if (!isRecord(item)) return [];
-    const id = textOrNull(item.id);
-    const url = textOrNull(item.url);
+    const id = textOrNull(item.id, 128);
+    const url = textOrNull(item.url, 2_048);
     if (!id || !url || !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.pages\.dev(?:\/.*)?$/i.test(url)) return [];
 
     const trigger = isRecord(item.deployment_trigger) ? item.deployment_trigger : {};
     const metadata = isRecord(trigger.metadata) ? trigger.metadata : {};
     const stage = isRecord(item.latest_stage) ? item.latest_stage : {};
-    const branch = textOrNull(metadata.branch);
-    const commitMessage = textOrNull(metadata.commit_message);
+    const branch = textOrNull(metadata.branch, 128);
+    const commitMessage = boundedText(metadata.commit_message, 200);
     const rawCommitSha = textOrNull(metadata.commit_hash);
     const commitSha = rawCommitSha && /^[a-f0-9]{7,64}$/i.test(rawCommitSha) ? rawCommitSha : null;
 
     return [{
       id,
       url,
-      environment: textOrNull(item.environment) ?? "unknown",
-      createdAt: textOrNull(item.created_on),
+      environment: textOrNull(item.environment, 32) ?? "unknown",
+      createdAt: textOrNull(item.created_on, 64),
       branch,
       commitMessage,
       commitSha,

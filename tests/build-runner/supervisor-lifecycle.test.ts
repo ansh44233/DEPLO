@@ -42,3 +42,43 @@ test("rejects illegal transitions and all transitions from terminal states", () 
   assert.throws(() => transitionSupervisorState("succeeded", "fail"), /supervisor_state_terminal/);
   assert.throws(() => transitionSupervisorState("cancelled", "prepare"), /supervisor_state_terminal/);
 });
+
+test("rejects unknown lifecycle states and events at runtime", () => {
+  assert.throws(
+    () => transitionSupervisorState("unknown" as never, "prepare"),
+    /invalid_supervisor_state/,
+  );
+  assert.throws(
+    () => transitionSupervisorState("queued", "unknown" as never),
+    /invalid_supervisor_transition/,
+  );
+});
+
+test("rejects unknown evidence fields and non-boolean evidence values", () => {
+  assert.throws(() => transitionSupervisorState("preparing", "start", {
+    hostPreflightPassed: true,
+    vmWasActuallyStarted: true,
+  } as never), /invalid_supervisor_evidence/);
+
+  assert.throws(() => transitionSupervisorState("preparing", "start", {
+    hostPreflightPassed: "true",
+  } as never), /invalid_supervisor_evidence/);
+});
+
+test("rejects null, arrays and class instances as lifecycle evidence", () => {
+  assert.throws(
+    () => transitionSupervisorState("queued", "prepare", null as never),
+    /invalid_supervisor_evidence/,
+  );
+  assert.throws(
+    () => transitionSupervisorState("queued", "prepare", [] as never),
+    /invalid_supervisor_evidence/,
+  );
+  class Evidence {
+    hostPreflightPassed = true;
+  }
+  assert.throws(
+    () => transitionSupervisorState("preparing", "start", new Evidence() as never),
+    /invalid_supervisor_evidence/,
+  );
+});

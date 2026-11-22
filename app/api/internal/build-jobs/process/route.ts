@@ -4,8 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  attachRunnerJob, claimNextBuildJob, claimNextRunnerPollJob, finishBuildJob,
-  releaseRunnerPollClaim, scheduleRunnerPoll,
+  attachRunnerJob, claimNextArtifactPublishJob, claimNextBuildJob, claimNextRunnerPollJob, finishBuildJob,
+  releaseRunnerPollClaim, saveRunnerArtifact, scheduleRunnerPoll,
 } from "@/lib/db/supabase-build-jobs";
 import { getOwnedProjectById, updateOwnedProjectDeployment } from "@/lib/db/supabase-projects";
 import { getActiveGitHubInstallationId, GitHubInstallationStoreError } from "@/lib/db/supabase-github-app-installations";
@@ -39,8 +39,8 @@ function errorCode(error: unknown): string {
   }
   if (error instanceof BuildArtifactError) {
     if (error.code === "not_configured") return "runner_not_configured";
-    if (error.code === "unavailable") return "runner_unavailable";
-    if (error.code === "rejected") return "runner_rejected";
+    if (error.code === "unavailable") return "artifact_unavailable";
+    if (error.code === "rejected") return "artifact_rejected";
     return "artifact_invalid";
   }
   if (error instanceof GitHubSourceArchiveError) return "github_source_" + error.code;
@@ -48,9 +48,11 @@ function errorCode(error: unknown): string {
   return "build_worker_failed";
 }
 
-async function publishBuildArtifact(job: NonNullable<Awaited<ReturnType<typeof claimNextRunnerPollJob>>>, artifact: {
-  artifactId: string; outputFileCount: number; outputBytes: number;
-}): Promise<string> {
+async function publishBuildArtifact(job: NonNullable<Awaited<ReturnType<typeof claimNextArtifactPublishJob>>>): Promise<string> {
+  if (!job.artifact_id || job.artifact_file_count == null || job.artifact_bytes == null) {
+    throw new BuildArtifactError("Build artifact metadata is incomplete.", "invalid_artifact");
+  }
+  const artifact = { artifactId: job.artifact_id, outputFileCount: job.artifact_file_count, outputBytes: job.artifact_bytes };
   const project = await getOwnedProjectById(job.owner_github_id, job.project_id);
   if (!project) throw new Error("The build job project is no longer available.");
   const credentials = readCloudflarePagesCredentials();
@@ -91,6 +93,21 @@ export async function POST(request: NextRequest) {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return response({ error: "Build queue storage is not configured." }, 503);
   if (!readBuildRunnerConfiguration()) return response({ error: "The isolated build runner is not configured." }, 503);
 
+  let publishJob: Awaited<ReturnType<typeof claimNextArtifactPublishJob>> = null;
+  try { publishJob = await claimNextArtifactPublishJob(); }
+  catch { return response({ error: "A validated artifact could not be claimed for publication." }, 502); }
+  if (publishJob) {
+    try {
+      const deploymentUrl = await publishBuildArtifact(publishJob);
+      await finishBuildJob(publishJob.id, "succeeded");
+      return response({ processed: true, action: "deployed", jobId: publishJob.id, deploymentUrl });
+    } catch (error) {
+      const code = errorCode(error);
+      await finishBuildJob(publishJob.id, "failed", code).catch(() => undefined);
+      return response({ processed: true, action: "publish-retry", jobId: publishJob.id, error: code }, 502);
+    }
+  }
+
   let pollJob: Awaited<ReturnType<typeof claimNextRunnerPollJob>> = null;
   try { pollJob = await claimNextRunnerPollJob(); }
   catch { return response({ error: "A runner job could not be claimed for polling." }, 502); }
@@ -109,11 +126,12 @@ export async function POST(request: NextRequest) {
         await finishBuildJob(pollJob.id, "failed", status.result.errorCode);
         return response({ processed: true, action: "failed", jobId: pollJob.id, retryScheduled: pollJob.attempt_count < pollJob.max_attempts });
       }
-      const deploymentUrl = await publishBuildArtifact(pollJob, {
-        artifactId: status.result.artifactId, outputFileCount: status.result.outputFileCount, outputBytes: status.result.outputBytes,
+      await saveRunnerArtifact(pollJob.id, {
+        artifactId: status.result.artifactId,
+        outputFileCount: status.result.outputFileCount,
+        outputBytes: status.result.outputBytes,
       });
-      await finishBuildJob(pollJob.id, "succeeded");
-      return response({ processed: true, action: "deployed", jobId: pollJob.id, deploymentUrl });
+      return response({ processed: true, action: "artifact-ready", jobId: pollJob.id, publicationQueued: true });
     } catch (error) {
       const code = errorCode(error);
       await releaseRunnerPollClaim(pollJob.id, 30).catch(() => undefined);

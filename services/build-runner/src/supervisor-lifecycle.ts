@@ -31,10 +31,44 @@ export type SupervisorEvidence = Readonly<{
   cleanupComplete?: boolean;
 }>;
 
+const STATES: readonly SupervisorState[] = [
+  "queued", "preparing", "starting", "running", "stopping",
+  "succeeded", "failed", "cancelled",
+];
+const EVENTS: readonly SupervisorEvent[] = [
+  "prepare", "start", "started", "stop", "succeed", "fail", "cancel",
+];
+const EVIDENCE_KEYS = [
+  "hostPreflightPassed",
+  "vmIsolationVerified",
+  "resourceLimitsVerified",
+  "networkIsolationVerified",
+  "vmStopped",
+  "artifactValidated",
+  "cleanupComplete",
+] as const;
+
 const TERMINAL = new Set<SupervisorState>(["succeeded", "failed", "cancelled"]);
 
 function requireEvidence(condition: boolean, code: string): void {
   if (!condition) throw new Error(code);
+}
+
+function validateEvidence(value: unknown): asserts value is SupervisorEvidence {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid_supervisor_evidence");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error("invalid_supervisor_evidence");
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some(key => !EVIDENCE_KEYS.includes(key as typeof EVIDENCE_KEYS[number]))) {
+    throw new Error("invalid_supervisor_evidence");
+  }
+  if (Object.values(record).some(item => typeof item !== "boolean")) {
+    throw new Error("invalid_supervisor_evidence");
+  }
 }
 
 /**
@@ -46,6 +80,10 @@ export function transitionSupervisorState(
   event: SupervisorEvent,
   evidence: SupervisorEvidence = {},
 ): SupervisorState {
+  if (!STATES.includes(current)) throw new Error("invalid_supervisor_state");
+  if (!EVENTS.includes(event)) throw new Error("invalid_supervisor_transition");
+  validateEvidence(evidence);
+
   if (TERMINAL.has(current)) throw new Error("supervisor_state_terminal");
 
   if (current === "queued" && event === "prepare") return "preparing";

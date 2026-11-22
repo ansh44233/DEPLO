@@ -43,6 +43,15 @@ test("lists and sanitizes provider domains", async () => {
   assert.equal(domains[0]?.validation.method, "http");
 });
 
+test("rejects an oversized provider domain list", async () => {
+  const result = Array.from({ length: 501 }, (_, index) => ({
+    id: String(index), name: `domain-${index}.example.com`, status: "active",
+  }));
+  await assert.rejects(listPagesDomains(config, async () =>
+    new Response(JSON.stringify({ success: true, result }), { status: 200 }),
+  ), /invalid custom-domain list/);
+});
+
 test("removes a domain with a safely encoded hostname", async () => {
   let url = "";
   let method = "";

@@ -200,3 +200,40 @@ test("ignores malformed commit hashes from provider metadata", () => {
   }]);
   assert.equal(result[0]?.commitSha, null);
 });
+
+
+test("bounds untrusted deployment metadata before returning it to the dashboard", () => {
+  const longCommitMessage = "x".repeat(500);
+  const result = normalizeCloudflareDeployments([{
+    id: "deployment-bounded",
+    url: "https://abc123.deplo-sites.pages.dev",
+    environment: "e".repeat(40),
+    created_on: "d".repeat(80),
+    deployment_trigger: {
+      metadata: {
+        branch: "b".repeat(140),
+        commit_message: longCommitMessage,
+      },
+    },
+  }]);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.environment, "unknown");
+  assert.equal(result[0]?.createdAt, null);
+  assert.equal(result[0]?.branch, null);
+  assert.equal(result[0]?.commitMessage?.length, 200);
+  assert.equal(result[0]?.commitMessage, longCommitMessage.slice(0, 200));
+});
+
+test("rejects deployment identifiers and URLs that exceed safe metadata bounds", () => {
+  assert.deepEqual(normalizeCloudflareDeployments([
+    {
+      id: "i".repeat(129),
+      url: "https://abc123.deplo-sites.pages.dev",
+    },
+    {
+      id: "valid-id",
+      url: "https://abc123.deplo-sites.pages.dev/" + "p".repeat(2_048),
+    },
+  ]), []);
+});

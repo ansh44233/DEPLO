@@ -1,4 +1,5 @@
 import type { IsolatedBuildLimits } from "../../../lib/deploy/build-runner-contract";
+import { posix } from "node:path";
 
 export type FirecrackerHostConfig = Readonly<{
   firecrackerBinary: string;
@@ -13,6 +14,7 @@ export type FirecrackerHostConfig = Readonly<{
 export type FirecrackerVmPlan = Readonly<{
   jobId: string;
   vcpuCount: number;
+  cpuMillicores: number;
   memoryMiB: number;
   diskMiB: number;
   timeoutSeconds: number;
@@ -23,8 +25,23 @@ export type FirecrackerVmPlan = Readonly<{
   host: FirecrackerHostConfig;
 }>;
 
-const ABSOLUTE_PATH = /^\//;
 const SAFE_INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
+const HOST_PATH_KEYS = [
+  "firecrackerBinary",
+  "jailerBinary",
+  "kernelImage",
+  "initrdImage",
+  "jailerWorkDir",
+  "cgroupRoot",
+] as const;
+
+function validateHostPath(value: string): boolean {
+  if (typeof value !== "string" || !value.startsWith("/") || value.includes("\0")) return false;
+  // Require canonical absolute paths: no traversal, dot segments, duplicate
+  // separators, or trailing separators that could alias another configured path.
+  return value !== "/" && posix.normalize(value) === value &&
+    value.split("/").every((part, index) => index === 0 || (part !== "" && part !== "." && part !== ".."));
+}
 
 /**
  * Creates a data-only VM plan from trusted operator configuration and validated
@@ -38,10 +55,8 @@ export function createFirecrackerVmPlan(input: {
   host: FirecrackerHostConfig;
 }): FirecrackerVmPlan {
   if (!/^[0-9a-f-]{36}$/i.test(input.jobId)) throw new Error("invalid_job_id");
-  const paths = Object.values(input.host).filter((value, index) => index < 6);
-  if (paths.some(value => typeof value !== "string" || !ABSOLUTE_PATH.test(value) || value.includes("\0"))) {
-    throw new Error("invalid_host_path");
-  }
+  const paths = HOST_PATH_KEYS.map(key => input.host[key]);
+  if (paths.some(value => !validateHostPath(value))) throw new Error("invalid_host_path");
   if (new Set(paths).size !== paths.length) throw new Error("duplicate_host_path");
   if (!SAFE_INTERFACE.test(input.host.tapDevice)) throw new Error("invalid_tap_device");
 
@@ -58,6 +73,7 @@ export function createFirecrackerVmPlan(input: {
   return Object.freeze({
     jobId: input.jobId,
     vcpuCount: Math.max(1, Math.min(2, Math.ceil(cpuMillicores / 1000))),
+    cpuMillicores,
     memoryMiB,
     diskMiB,
     timeoutSeconds,
