@@ -10,7 +10,7 @@ import { isValidGitHubBranch } from "@/lib/github/deploy-validation";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 
 export const runtime = "nodejs";
@@ -159,6 +159,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const indexStat = await stat(join(siteRoot, "index.html")).catch(() => null);
     if (!indexStat?.isFile()) return jsonError("The site has no index.html to serve.", 422);
 
+    await pruneUnpublishableFiles(siteRoot);
     const assets = await inspectStaticDirectory(siteRoot);
     await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
     const deployment = await deployStaticDirectory(siteRoot, pagesTarget.productionBranch, pagesTarget.config);

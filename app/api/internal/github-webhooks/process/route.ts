@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { drainWorker, isAuthorizedWorkerRequest } from "@/lib/workers/background";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
@@ -230,6 +230,7 @@ async function processNextDelivery(): Promise<NextResponse> {
         }
         const index = await stat(join(publishRoot, "index.html")).catch(() => null);
         if (!index?.isFile()) throw new Error("root_index_missing");
+        await pruneUnpublishableFiles(publishRoot);
         await inspectStaticDirectory(publishRoot);
 
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
