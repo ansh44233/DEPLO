@@ -21,7 +21,7 @@ test("workspace manager creates private separated directories and removes them i
     const manager = await createWorkspaceManager(root);
     const workspace = await manager.create();
     assert.match(workspace.id, /^job-/);
-    assert.deepEqual((await readdir(workspace.root)).sort(), ["output", "source", "work"]);
+    assert.deepEqual((await readdir(workspace.root)).sort(), [".deplo-workspace-lease.json", "output", "source", "work"]);
     for (const path of [root, workspace.root, workspace.sourceDir, workspace.outputDir, workspace.workDir]) {
       const info = await lstat(path);
       assert.equal(info.isDirectory(), true);
