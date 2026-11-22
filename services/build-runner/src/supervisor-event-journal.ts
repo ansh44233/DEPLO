@@ -55,13 +55,13 @@ function requireExactKeys(value: Record<string, unknown>, expected: readonly str
   }
 }
 
-function validateTimestamp(value: unknown): asserts value is string {
+function validateTimestamp(value: unknown, errorCode = "invalid_supervisor_journal_snapshot"): asserts value is string {
   if (
     typeof value !== "string" ||
     !Number.isFinite(Date.parse(value)) ||
     new Date(Date.parse(value)).toISOString() !== value
   ) {
-    throw new Error("invalid_supervisor_journal_snapshot");
+    throw new Error(errorCode);
   }
 }
 
@@ -142,7 +142,7 @@ export function appendSupervisorEvent(
   if (typeof input.eventId !== "string" || !EVENT_ID.test(input.eventId)) {
     throw new Error("invalid_supervisor_event_id");
   }
-  validateTimestamp(input.occurredAt);
+  validateTimestamp(input.occurredAt, "invalid_supervisor_event_timestamp");
 
   const evidence: SupervisorEvidence = input.evidence ?? {};
   validateEvidence(evidence);
