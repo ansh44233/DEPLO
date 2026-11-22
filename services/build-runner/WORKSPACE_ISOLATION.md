@@ -1,12 +1,16 @@
 # Workspace isolation foundation
 
-This module provides filesystem lifecycle primitives and a process-local concurrency admission cap only. It does not create a container, VM, namespace, cgroup, seccomp profile, disk quota, or network boundary, and it must not be treated as a security sandbox.
+This module provides private filesystem lifecycle primitives and a process-local concurrency admission cap only. It does not create a container, VM, namespace, cgroup, seccomp profile, disk quota, or network boundary, and it must not be treated as a security sandbox.
 
-## Workspace layout and admission control
+## Workspace layout, admission control, and leases
 
-Each build receives a unique directory below a configured absolute, canonical workspace root: `source/`, `work/`, and `output/`. The root and children use owner-only permissions (`0700`). Symlink roots are rejected. Cleanup is idempotent and constrained to generated `job-` directories below the canonical root.
+Each build receives a unique directory below a configured absolute, canonical workspace root: `source/`, `work/`, and `output/`. The root and children use owner-only permissions (`0700`). Symlink roots are rejected. Cleanup is constrained to generated `job-` directories below the canonical root.
 
-The manager defaults to at most four active workspaces per Node.js process; callers may configure 1–128. This is not a distributed quota: multiple runner processes each have their own counter. Production admission control must also use a shared queue/lease or scheduler limit. A crashed process can leave directories behind, so a separately authenticated stale-workspace janitor is still required.
+The manager defaults to at most four active workspaces per Node.js process; callers may configure 1–128. This is not a distributed quota: multiple runner processes each have their own counter. Production admission control must also use a shared queue/lease or scheduler limit.
+
+Each managed workspace contains a private `.deplo-workspace-lease.json` marker. The workspace exposes an explicit `heartbeat()` operation that atomically refreshes the marker. Long-running build orchestration must heartbeat regularly (for example, every minute) and treat heartbeat failure as a workspace-lifecycle failure. The janitor preserves a workspace while its last valid heartbeat is within the configured retention window; expired leases become eligible for cleanup. Invalid or symlinked lease markers fail closed and are skipped. Legacy workspaces without a lease continue to use directory modification time.
+
+The lease is a liveness hint, not a distributed lock or a substitute for a durable job registry. Keep the retention window comfortably above the enforced maximum build duration. A process crash leaves a lease that eventually expires. The current runner still does not execute builds.
 
 ## Resource policy contract
 
