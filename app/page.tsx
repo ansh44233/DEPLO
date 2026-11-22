@@ -683,7 +683,7 @@ export default function Home() {
         setProjects((current) => [savedProject, ...current.filter((project) => project.name !== projectName)]);
         setActiveProject(projectName);
         setActiveNav("project"); setProjectTab("overview");
-        setNotice("Project saved to your GitHub account. It has not been deployed yet.");
+        setNotice("Imported " + projectName + ". Press Deploy to publish it.");
         setModal(null);
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "Could not save this project.");
@@ -694,7 +694,7 @@ export default function Home() {
     }
     setProjects((current) => [newProject, ...current.filter((project) => project.name !== projectName)]);
     setActiveProject(projectName); setActiveNav("project"); setProjectTab("overview");
-    setNotice("Repository added to this dashboard preview. Sign in and configure Supabase to save projects to your account.");
+    setNotice("Imported. Sign in with GitHub to save and deploy it.");
     setModal(null);
   }
 
@@ -799,6 +799,12 @@ export default function Home() {
     }
   }
 
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 7000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   const isDeployed = Boolean(selected.id) && selected.domain !== "Not deployed yet" && /^https?:\/\//.test(selected.domain);
   const latestDeployment = displayDeployments[0];
   const openProject = (name: string, tab: ProjectTab = "overview") => { setActiveProject(name); setActiveNav("project"); setProjectTab(tab); };
@@ -857,13 +863,13 @@ export default function Home() {
         </div>}
 
         {activeNav === "home" ? <>
-          <div className="toolbar">
+          {(signedInUser || projects.length > 0) && <div className="toolbar">
             <label className="search">
               <Search size={16} aria-hidden="true" />
               <input id="project-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search projects" aria-label="Search projects" />
             </label>
             <button className="btn btn-primary" onClick={() => setModal("github")}><Plus size={16} /> Add new</button>
-          </div>
+          </div>}
 
           {projectsError && <div className="banner banner-error" role="alert">{projectsError}</div>}
 
@@ -1021,7 +1027,7 @@ export default function Home() {
                       : <div className="list">{recoveryAttempts.map((attempt) => {
                         const tone = attempt.status === "completed" ? "ready" : attempt.status === "blocked" ? "error" : attempt.status === "reconciling" ? "building" : "idle";
                         return <div className="row" key={attempt.id}>
-                          <span className={"status status-" + tone}><span className={"dot dot-" + tone} />{attempt.status}</span>
+                          <span className={"status status-" + tone}><span className={"dot dot-" + tone} />{cap(attempt.status)}</span>
                           <div className="row-main"><strong>{attempt.disposition.replaceAll("_", " ")}</strong><span className="muted">Runner state {attempt.observed_state}, step {Math.min(attempt.next_action_index, attempt.actions.length)} of {attempt.actions.length}</span></div>
                           <div className="row-meta muted">{attempt.error_code && <span className="text-error mono">{attempt.error_code}</span>}<span>{timeAgo(attempt.updated_at)}</span></div>
                           <span />
@@ -1053,7 +1059,7 @@ export default function Home() {
                     return <div className="domain" key={domain.name}>
                       <div className="domain-top">
                         <a className="mono domain-name" href={"https://" + domain.name} target="_blank" rel="noreferrer">{domain.name}</a>
-                        <span className={"status status-" + tone}><span className={"dot dot-" + tone} />{domain.status === "active" ? "Valid configuration" : domain.status}</span>
+                        <span className={"status status-" + tone}><span className={"dot dot-" + tone} />{domain.status === "active" ? "Valid configuration" : cap(domain.status)}</span>
                         <button className="btn btn-ghost btn-sm" onClick={() => void removeCustomDomain(domain.name)} disabled={domainDeleting !== null}>{domainDeleting === domain.name ? "Removing…" : "Remove"}</button>
                       </div>
                       {domain.status !== "active" && <table className="dns">
@@ -1196,6 +1202,10 @@ export default function Home() {
 }
 
 type DisplayDeployment = { id: string; message: string; commitSha: string | null; branch: string; time: string; status: string; url: string; canRollback: boolean; project: string };
+
+function cap(value: string): string {
+  return value ? value[0].toUpperCase() + value.slice(1) : value;
+}
 
 function toneClass(tone: "healthy" | "failed" | "building" | "queued"): "ready" | "error" | "building" | "idle" {
   return tone === "healthy" ? "ready" : tone === "failed" ? "error" : tone === "building" ? "building" : "idle";
