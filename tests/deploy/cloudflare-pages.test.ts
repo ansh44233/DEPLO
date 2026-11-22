@@ -166,3 +166,36 @@ test("redacts synchronous Wrangler spawn exceptions", async () => {
     },
   );
 });
+
+test("returns the deployment URL after a successful Wrangler process", async () => {
+  const child = fakeChild();
+  let command = "";
+  let args: readonly string[] = [];
+  let options: import("node:child_process").SpawnOptions | undefined;
+  const spawnProcess = ((file: string, commandArgs: readonly string[], spawnOptions: import("node:child_process").SpawnOptions) => {
+    command = file;
+    args = commandArgs;
+    options = spawnOptions;
+    process.nextTick(() => {
+      child.stdout.write("Uploading assets...\\nhttps://abc123.deplo-sites.pages.dev\\n");
+      child.stderr.write("Deployment complete\\n");
+      child.emit("close", 0);
+    });
+    return child;
+  }) as unknown as typeof import("node:child_process").spawn;
+
+  const result = await deployStaticDirectory("/tmp/site", "site-demo", config, {
+    accessPath: allowAccess,
+    spawnProcess,
+  });
+
+  assert.equal(command, process.execPath);
+  assert.equal(args[0]?.endsWith("/node_modules/wrangler/bin/wrangler.js"), true);
+  assert.deepEqual(args.slice(1), buildPagesDeployArgs("/tmp/site", "deplo-sites", "site-demo"));
+  assert.equal(options?.shell, undefined);
+  assert.equal(options?.cwd, process.cwd());
+  assert.equal((options?.env as NodeJS.ProcessEnv).CLOUDFLARE_ACCOUNT_ID, "account-123");
+  assert.equal((options?.env as NodeJS.ProcessEnv).CLOUDFLARE_API_TOKEN, "secret-token");
+  assert.equal(result.url, "https://abc123.deplo-sites.pages.dev");
+  assert.match(result.output, /Deployment complete/);
+});
