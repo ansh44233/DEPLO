@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import {
   buildPagesDeployArgs,
+  cloudflarePagesDeploymentFailure,
   isValidPagesBranch,
   isValidPagesProjectName,
   readCloudflarePagesConfig,
@@ -64,4 +65,14 @@ test("reads account-level Cloudflare credentials without requiring a legacy shar
     apiToken: "secret-token",
   });
   assert.equal(readCloudflarePagesCredentials({ CLOUDFLARE_ACCOUNT_ID: "account" }), null);
+});
+
+
+test("returns a stable public deployment error without including private CLI output", () => {
+  const privateOutput = "Bearer secret-token /srv/deplo/private/work account=private-account";
+  const error = cloudflarePagesDeploymentFailure();
+  assert.equal(error.message, "Cloudflare Pages deployment failed. Check the server logs for details.");
+  assert.equal(error.message.includes(privateOutput), false);
+  assert.equal(error.message.includes("secret-token"), false);
+  assert.equal(error.message.includes("/srv/deplo/private/work"), false);
 });
