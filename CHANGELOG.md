@@ -5,6 +5,12 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Dashboard **Build jobs** panel for GitHub projects: queue a framework build for an exact commit (with a "Use latest" helper that reads the saved branch's head commit), see the runner and publication state of each job, cancel pending or processing jobs, and auto-refresh while builds are active.
+
+### Changed
+- README now describes the connected build worker instead of stating that queued jobs never run.
+
+### Added
 - Asynchronous isolated build-runner transport with stable idempotency keys, bounded status polling, and strict terminal artifact metadata validation.
 - Durable runner job ID persistence, atomic polling claims, retry scheduling, and a protected background queue processor endpoint.
 - Runner success is recorded as artifact-ready only; deployment success is withheld until an independent artifact validation and publishing pipeline exists.

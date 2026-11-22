@@ -156,9 +156,8 @@ The archive safety policy defines path traversal checks and conservative limits 
 - GitHub repository import
 - ZIP project upload
 - Standalone `index.html` upload
-- Build and deployment history
 - Live build logs
-- Project settings and environment variables
+- Per-project environment variables
 - Custom domains and HTTPS (later phase)
 
 ## Local development
@@ -282,4 +281,6 @@ Migration `0006_durable_build_jobs.sql` adds an account-owned queue for exact-co
 - `DELETE /api/projects/{projectId}/build-jobs/{jobId}` cancels only pending or processing jobs belonging to that same account and project.
 - The database provides atomic `SKIP LOCKED` job claiming, stale-claim recovery, bounded retries, and sanitized error codes for a future worker.
 
-**Important:** this is queue storage and API groundwork only. No build worker is connected; queued jobs do not execute, install dependencies, or deploy. A future worker must use an isolated ephemeral runner with strict resource limits, no deployment secrets in the build environment, validated immutable artifacts, and cancellation/timeout enforcement. The API's submitted framework metadata is a request, not proof that the repository actually uses that framework; the worker must independently inspect the exact commit before building.
+**Dashboard:** GitHub projects have a **Build jobs** panel. Pick a framework and package manager, paste a full commit SHA or click **Use latest** to read the saved branch's head commit, then queue the build. The panel lists each job's state (queued, building, publishing, deployed, failed, cancelled), the attempt count, the output size and any sanitized error code. Pending and processing jobs can be cancelled, and the list refreshes every 10 seconds while a job is active.
+
+**Execution:** the protected `POST /api/internal/build-jobs/process` worker submits queued jobs to the isolated runner, polls the runner, and publishes validated artifacts to the project's Pages site. Jobs run only when that worker is scheduled and a runner is configured (see [Build runner](docs/BUILD_RUNNER.md)). The runner must use an isolated ephemeral runner with strict resource limits, no deployment secrets in the build environment, validated immutable artifacts, and cancellation/timeout enforcement. The API's submitted framework metadata is a request, not proof that the repository actually uses that framework; the worker must independently inspect the exact commit before building.
