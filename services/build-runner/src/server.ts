@@ -2,11 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createHash, timingSafeEqual } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { extractZipSafely } from "../../../lib/uploads/extract-zip";
+import { cleanupStaleWorkspaces } from "./workspace-janitor";
 import { join, isAbsolute, resolve } from "node:path";
 
 const MAX_ARCHIVE = 25 * 1024 * 1024;
 const MAX_BODY = MAX_ARCHIVE + 64 * 1024;
-type RunnerConfig = { token: string; dataDir: string };
+type RunnerConfig = { token: string; dataDir: string; workspaceDir?: string };
 type Part = { name: string; filename?: string; bytes: Buffer };
 
 function json(res: ServerResponse, status: number, body: Record<string, unknown>) {
@@ -79,16 +80,10 @@ async function validateSourceArchive(config: RunnerConfig, archive: Buffer): Pro
   const archivePath = join(validationRoot, "source.zip");
   try {
     await writeFile(archivePath, archive, { flag: "wx", mode: 0o600 });
-    try {
-      await extractZipSafely(archivePath, join(validationRoot, "extracted"));
-    } catch {
-      throw new Error("invalid_archive");
-    }
-  } finally {
-    await rm(validationRoot, { recursive: true, force: true });
-  }
+    try { await extractZipSafely(archivePath, join(validationRoot, "extracted")); }
+    catch { throw new Error("invalid_archive"); }
+  } finally { await rm(validationRoot, { recursive: true, force: true }); }
 }
-
 async function saveSource(config: RunnerConfig, key: string, metadata: ReturnType<typeof parseMetadata>, archive: Buffer) {
   const digest = createHash("sha256").update(archive).digest("hex");
   const keyId = createHash("sha256").update(key).digest("hex");
@@ -127,10 +122,8 @@ async function saveSource(config: RunnerConfig, key: string, metadata: ReturnTyp
   }
 }
 
-
 const SOURCE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const CLEANUP_BATCH_LIMIT = 100;
-
 async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
   const entries = await readdir(dataDir, { withFileTypes: true });
   const expired = new Set<string>();
@@ -157,9 +150,7 @@ async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
           await rm(path, { force: true });
           recordsRemoved++;
         }
-      } catch {
-        // Leave malformed records for operator inspection rather than deleting unknown data.
-      }
+      } catch { /* Preserve malformed records for operator inspection. */ }
     }
   }
   return { sourcesRemoved: expired.size, recordsRemoved, bytesFreed };
@@ -167,12 +158,10 @@ async function cleanupExpiredSources(dataDir: string, now = Date.now()) {
 export function createRunnerServer(config: RunnerConfig) {
   if (config.token.length < 32) throw new Error("Runner token must contain at least 32 characters.");
   if (!isAbsolute(config.dataDir)) throw new Error("Runner data directory must be absolute.");
-  config = { ...config, dataDir: resolve(config.dataDir) };
+  if (config.workspaceDir && !isAbsolute(config.workspaceDir)) throw new Error("Runner workspace directory must be absolute.");
+  config = { ...config, dataDir: resolve(config.dataDir), workspaceDir: config.workspaceDir ? resolve(config.workspaceDir) : undefined };
   const server = createServer({
-    headersTimeout: 15_000,
-    requestTimeout: 120_000,
-    keepAliveTimeout: 5_000,
-    maxHeaderSize: 16 * 1024,
+    headersTimeout: 15_000, requestTimeout: 120_000, keepAliveTimeout: 5_000, maxHeaderSize: 16 * 1024,
   }, async (req, res) => {
     try {
       const path = new URL(req.url ?? "/", "http://runner.local").pathname;
@@ -201,7 +190,10 @@ export function createRunnerServer(config: RunnerConfig) {
       if (req.method === "POST" && path === "/v1/maintenance/cleanup") {
         if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
         const result = await cleanupExpiredSources(config.dataDir);
-        return json(res, 200, result);
+        const workspaces = config.workspaceDir
+          ? await cleanupStaleWorkspaces(config.workspaceDir)
+          : undefined;
+        return json(res, 200, { ...result, ...(workspaces ?? {}) });
       }
       if (req.method === "POST" && path === "/v1/builds") {
         if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
@@ -225,6 +217,10 @@ export function createRunnerServer(config: RunnerConfig) {
 
 if (process.env.DEPLO_RUNNER_TOKEN && process.env.DEPLO_RUNNER_DATA_DIR) {
   const port = Number(process.env.PORT ?? 8788);
-  const server = createRunnerServer({ token: process.env.DEPLO_RUNNER_TOKEN, dataDir: process.env.DEPLO_RUNNER_DATA_DIR });
+  const server = createRunnerServer({
+    token: process.env.DEPLO_RUNNER_TOKEN,
+    dataDir: process.env.DEPLO_RUNNER_DATA_DIR,
+    workspaceDir: process.env.DEPLO_RUNNER_WORKSPACE_DIR,
+  });
   server.listen(port, "0.0.0.0");
 }

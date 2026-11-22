@@ -9,6 +9,7 @@ Set an absolute private data directory and a random token of at least 32 charact
 ```sh
 DEPLO_RUNNER_TOKEN="$(openssl rand -hex 32)" \
 DEPLO_RUNNER_DATA_DIR="/var/lib/deplo-runner" \
+DEPLO_RUNNER_WORKSPACE_DIR="/var/lib/deplo-workspaces" \
 PORT=8788 npx tsx services/build-runner/src/server.ts
 ```
 
@@ -16,8 +17,12 @@ The HTTP server limits headers to 15 seconds, request-body receipt to 120 second
 
 The process exposes `GET /healthz` and authenticated `POST /v1/sources`. Source intake accepts the multipart contract documented in `docs/BUILD_RUNNER.md`, caps the body, validates metadata and ZIP structure, then applies safe extraction checks for traversal, duplicate paths, symlinks, special files, entry count, expanded size, and compression ratio before persisting a SHA-256-bound source ID. Repeating the same idempotency key and exact source returns the same ID; a conflicting retry returns 409.
 
-The source directory must be on a private persistent filesystem with access restricted to the runner service account. Do not mount it into build containers.\n\nAn authenticated `POST /v1/maintenance/cleanup` removes source archives older than seven days and their matching idempotency records. Each invocation removes at most 100 sources; schedule it periodically from trusted infrastructure. Recent sources are retained. The endpoint returns removed source/record counts and bytes freed.
+The source directory must be on a private persistent filesystem with access restricted to the runner service account. Do not mount it into build containers.
+
+## Maintenance
+
+An authenticated `POST /v1/maintenance/cleanup` removes source archives older than seven days and matching idempotency records (maximum 100 per call). If `DEPLO_RUNNER_WORKSPACE_DIR` is configured, it also removes up to 100 stale `job-*` workspace directories older than 24 hours. Symlink roots and entries are rejected or skipped, unrelated files are untouched, and cleanup returns removed counts and bytes freed. Schedule this endpoint periodically from trusted infrastructure. The workspace retention must remain substantially longer than the maximum enforced build wall-clock duration; do not run untrusted builds without a real supervisor and sandbox.
 
 ## Deliberately disabled
 
-`POST /v1/builds` returns HTTP 503 with `sandbox_not_configured`. This is intentional: source intake is not a sandbox. Do not enable build execution until disposable VM/container isolation, network policy, resource enforcement, cancellation, artifact export, and cleanup have been implemented and independently tested.
+`POST /v1/builds` returns HTTP 503 with `sandbox_not_configured`. This is intentional: source intake and workspace cleanup are not a sandbox. Do not enable build execution until disposable VM/container isolation, network policy, resource enforcement, cancellation, artifact export, and cleanup have been implemented and independently tested.
