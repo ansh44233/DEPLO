@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
+import { drainWorker, isAuthorizedWorkerRequest } from "@/lib/workers/background";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
 import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
@@ -26,12 +26,6 @@ function error(message: string, status: number) {
   });
 }
 
-function authorized(header: string | null, secret: string): boolean {
-  if (secret.length < 32 || !header?.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice(7));
-  const expected = Buffer.from(secret);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
 
 function databaseConfig() {
   const baseUrl = process.env.SUPABASE_URL?.trim() ?? "";
@@ -149,8 +143,18 @@ async function downloadArchive(url: string, destination: string, installationTok
 }
 
 export async function POST(request: NextRequest) {
-  const workerSecret = process.env.DEPLO_WEBHOOK_WORKER_SECRET ?? "";
-  if (!authorized(request.headers.get("authorization"), workerSecret)) return error("Authentication required.", 401);
+  if (!isAuthorizedWorkerRequest(request.headers.get("authorization"), [process.env.DEPLO_WEBHOOK_WORKER_SECRET])) return error("Authentication required.", 401);
+  return processNextDelivery();
+}
+
+// Vercel Cron sends GET with `Authorization: Bearer $CRON_SECRET`; drain the queue as a backstop.
+export async function GET(request: NextRequest) {
+  if (!isAuthorizedWorkerRequest(request.headers.get("authorization"), [process.env.CRON_SECRET, process.env.DEPLO_WEBHOOK_WORKER_SECRET])) return error("Authentication required.", 401);
+  const result = await drainWorker(processNextDelivery);
+  return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+}
+
+async function processNextDelivery(): Promise<NextResponse> {
   const config = databaseConfig();
   if (!config) return error("Webhook worker storage is not configured.", 503);
   const cloudflare = readCloudflarePagesCredentials();

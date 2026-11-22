@@ -22,6 +22,7 @@ type DeploymentReadiness = {
   legacySharedProjectConfigured: boolean;
   ready: boolean;
   missing: string[];
+  maxUploadBytes?: number | null;
 };
 
 type CloudflareDeploymentLog = { timestamp: string | null; line: string };
@@ -40,6 +41,34 @@ type CloudflareDeployment = {
   status: "success" | "failure" | "building" | "unknown";
 };
 
+type BuildJobFramework = "vite" | "react" | "create-react-app" | "nextjs-static";
+type BuildJobPackageManager = "npm" | "pnpm" | "yarn" | "bun";
+type BuildJob = {
+  id: string; source_commit_sha: string; framework: BuildJobFramework; package_manager: BuildJobPackageManager;
+  output_directory: string; status: "pending" | "processing" | "succeeded" | "failed" | "cancelled";
+  attempt_count: number; max_attempts: number; available_at: string; error_code: string | null;
+  created_at: string; updated_at: string; runner_status?: "queued" | "running" | "succeeded" | null;
+  artifact_id?: string | null; artifact_file_count?: number | null; artifact_bytes?: number | null;
+};
+const BUILD_FRAMEWORKS: { value: BuildJobFramework; label: string; output: string }[] = [
+  { value: "vite", label: "Vite", output: "dist" },
+  { value: "react", label: "React", output: "build" },
+  { value: "create-react-app", label: "Create React App", output: "build" },
+  { value: "nextjs-static", label: "Next.js (static export)", output: "out" },
+];
+const BUILD_PACKAGE_MANAGERS: BuildJobPackageManager[] = ["npm", "pnpm", "yarn", "bun"];
+
+function describeBuildJob(job: BuildJob): { label: string; tone: "healthy" | "failed" | "building" | "queued" } {
+  if (job.status === "succeeded") return { label: "Deployed", tone: "healthy" };
+  if (job.status === "failed") return { label: "Failed", tone: "failed" };
+  if (job.status === "cancelled") return { label: "Cancelled", tone: "failed" };
+  if (job.artifact_id) return { label: "Publishing", tone: "building" };
+  if (job.runner_status === "running") return { label: "Building", tone: "building" };
+  if (job.runner_status === "queued") return { label: "Queued on runner", tone: "queued" };
+  if (job.status === "processing") return { label: "Submitting", tone: "building" };
+  return { label: job.attempt_count > 0 ? "Retry queued" : "Queued", tone: "queued" };
+}
+
 type SignedInUser = { id: number; login: string; name: string | null; avatarUrl: string | null };
 type GitHubAppStatus = { configured: boolean; connected: boolean; accountLogin: string | null; accountType: "User" | "Organization" | null };
 type AccountProject = {
@@ -52,6 +81,7 @@ type Project = {
   id?: string;
   slug?: string;
   sourceType?: AccountProject["source_type"];
+  repositoryUrl?: string | null;
   name: string;
   domain: string;
   source: string;
@@ -92,6 +122,15 @@ export default function Home() {
   const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
   const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookError, setWebhookError] = useState("");
+  const [buildJobs, setBuildJobs] = useState<BuildJob[]>([]);
+  const [buildJobsLoading, setBuildJobsLoading] = useState(false);
+  const [buildJobsError, setBuildJobsError] = useState("");
+  const [buildFramework, setBuildFramework] = useState<BuildJobFramework>("vite");
+  const [buildPackageManager, setBuildPackageManager] = useState<BuildJobPackageManager>("npm");
+  const [buildCommitSha, setBuildCommitSha] = useState("");
+  const [buildCommitLoading, setBuildCommitLoading] = useState(false);
+  const [buildQueueing, setBuildQueueing] = useState(false);
+  const [buildCancelling, setBuildCancelling] = useState<string | null>(null);
   const [recoveryAttempts, setRecoveryAttempts] = useState<RecoveryAttempt[]>([]);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState("");
@@ -171,6 +210,7 @@ export default function Home() {
           id: project.id,
           slug: project.slug,
           sourceType: project.source_type,
+          repositoryUrl: project.repository_url,
           name: project.name,
           domain: project.deployment_url || "Not deployed yet",
           source: project.source_type === "github"
@@ -343,6 +383,84 @@ export default function Home() {
   useEffect(() => {
     void refreshWebhookDeliveries(selected.id, Boolean(signedInUser) && selected.sourceType === "github");
   }, [refreshWebhookDeliveries, selected.id, selected.sourceType, signedInUser]);
+
+  const refreshBuildJobs = useCallback(async (projectId?: string, authenticated = false, quiet = false) => {
+    if (!authenticated || !projectId) { setBuildJobs([]); setBuildJobsError(""); setBuildJobsLoading(false); return; }
+    if (!quiet) setBuildJobsLoading(true);
+    setBuildJobsError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/build-jobs", { cache: "no-store" });
+      const data = await response.json() as { jobs?: BuildJob[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Build jobs are unavailable.");
+      setBuildJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    } catch (error) {
+      setBuildJobsError(error instanceof Error ? error.message : "Build jobs are unavailable.");
+      if (!quiet) setBuildJobs([]);
+    } finally { if (!quiet) setBuildJobsLoading(false); }
+  }, []);
+
+  const buildJobsEnabled = Boolean(signedInUser) && selected.sourceType === "github";
+  useEffect(() => {
+    setBuildCommitSha("");
+    void refreshBuildJobs(selected.id, buildJobsEnabled);
+  }, [refreshBuildJobs, selected.id, buildJobsEnabled]);
+
+  const hasActiveBuildJob = buildJobs.some((job) => job.status === "pending" || job.status === "processing");
+  useEffect(() => {
+    if (!hasActiveBuildJob || !buildJobsEnabled) return;
+    const timer = window.setInterval(() => { void refreshBuildJobs(selected.id, true, true); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveBuildJob, buildJobsEnabled, refreshBuildJobs, selected.id]);
+
+  async function fetchLatestBranchCommit() {
+    if (!selected.repositoryUrl || !selected.branch || buildCommitLoading) return;
+    setBuildCommitLoading(true);
+    setBuildJobsError("");
+    try {
+      const response = await fetch("/api/github/repository?url=" + encodeURIComponent(selected.repositoryUrl), { cache: "no-store" });
+      const data = await response.json() as Partial<RepositoryInfo> & { error?: string };
+      if (!response.ok) throw new Error(data.error || "Could not read the latest branch commit.");
+      const commit = data.branches?.find((branch) => branch.name === selected.branch)?.commit;
+      if (!commit || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("The saved branch " + selected.branch + " was not found in the repository.");
+      setBuildCommitSha(commit);
+    } catch (error) {
+      setBuildJobsError(error instanceof Error ? error.message : "Could not read the latest branch commit.");
+    } finally { setBuildCommitLoading(false); }
+  }
+
+  async function queueBuildJob() {
+    const sha = buildCommitSha.trim().toLowerCase();
+    if (!selected.id || !buildJobsEnabled || buildQueueing || !/^[a-f0-9]{40}$/.test(sha)) return;
+    setBuildQueueing(true);
+    setBuildJobsError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/build-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceCommitSha: sha, framework: buildFramework, packageManager: buildPackageManager }),
+      });
+      const data = await response.json() as { job?: BuildJob; error?: string };
+      if (!response.ok || !data.job) throw new Error(data.error || "The build could not be queued.");
+      setBuildJobs((current) => [data.job as BuildJob, ...current.filter((job) => job.id !== data.job?.id)]);
+      setNotice("Build queued for commit " + sha.slice(0, 7) + ". It runs when the build worker and isolated runner pick it up.");
+    } catch (error) {
+      setBuildJobsError(error instanceof Error ? error.message : "The build could not be queued.");
+    } finally { setBuildQueueing(false); }
+  }
+
+  async function cancelBuildJob(jobId: string) {
+    if (!selected.id || buildCancelling) return;
+    setBuildCancelling(jobId);
+    setBuildJobsError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/build-jobs/" + encodeURIComponent(jobId), { method: "DELETE" });
+      const data = await response.json() as { job?: BuildJob; error?: string };
+      if (!response.ok || !data.job) throw new Error(data.error || "The build job could not be cancelled.");
+      setBuildJobs((current) => current.map((job) => job.id === jobId ? { ...job, ...data.job } : job));
+    } catch (error) {
+      setBuildJobsError(error instanceof Error ? error.message : "The build job could not be cancelled.");
+    } finally { setBuildCancelling(null); }
+  }
 
   const refreshRecoveryAttempts = useCallback(async (projectId?: string, authenticated = false) => {
     if (!authenticated || !projectId) {
@@ -560,7 +678,9 @@ export default function Home() {
   async function startUpload(file: File | undefined, kind: "zip" | "html") {
     if (!file) return;
     setUploadError("");
-    const validationError = validateUploadSelection(file.name, file.size, kind);
+    const hostLimit = readiness?.maxUploadBytes;
+    const validationError = validateUploadSelection(file.name, file.size, kind) ??
+      (hostLimit && file.size > hostLimit ? "This DEPLO host accepts uploads up to " + Math.floor(hostLimit / 1024 / 1024) + " MB. Deploy larger sites from GitHub instead." : null);
     if (validationError) {
       setUploadError(validationError);
       setFileName("");
@@ -634,7 +754,8 @@ export default function Home() {
         method: "POST",
         body: form,
       });
-      const uploadData = await uploadResponse.json() as { url?: string; error?: string };
+      if (uploadResponse.status === 413) throw new Error("This upload is larger than the host allows. Deploy larger sites from GitHub instead.");
+      const uploadData = await uploadResponse.json().catch(() => ({})) as { url?: string; error?: string };
       if (!uploadResponse.ok) throw new Error(uploadData.error || "Upload deployment failed.");
 
       const deployedProject: Project = {
@@ -819,6 +940,64 @@ export default function Home() {
                     <div className="domain-status-line">Validation: {domain.validation.status} · Certificate: {domain.verification.status}</div>
                   </article>)}</div>}
               </div>}
+          </section>
+
+          <section className="panel webhook-panel build-jobs-panel">
+            <div className="panel-heading">
+              <div><div className="section-kicker">FRAMEWORK BUILDS</div><h2>Build jobs</h2><p>{buildJobsLoading ? "Loading build jobs…" : selected.sourceType !== "github" ? "Framework builds are available for GitHub projects." : "Build an exact commit in the isolated runner and publish the validated output to this project's Pages site."}</p></div>
+              <button className="text-button" onClick={() => void refreshBuildJobs(selected.id, buildJobsEnabled)} disabled={buildJobsLoading || !selected.id || !buildJobsEnabled}><RefreshCw size={14} className={buildJobsLoading ? "spin" : ""} /> {buildJobsLoading ? "Refreshing…" : "Refresh"}</button>
+            </div>
+            {!signedInUser ? <div className="empty-state">Sign in with GitHub to queue framework builds for your projects.</div>
+              : !selected.id ? <div className="empty-state">Select an account-owned project to manage its builds.</div>
+              : selected.sourceType !== "github" ? <div className="empty-state">ZIP and HTML projects are published as static files and do not need a build.</div>
+              : <div className="domain-manager">
+                <form className="domain-add-form build-job-form" onSubmit={(event) => { event.preventDefault(); void queueBuildJob(); }}>
+                  <div className="build-job-fields">
+                    <label>Framework
+                      <select value={buildFramework} onChange={(event) => setBuildFramework(event.target.value as BuildJobFramework)}>
+                        {BUILD_FRAMEWORKS.map((option) => <option key={option.value} value={option.value}>{option.label} → {option.output}/</option>)}
+                      </select>
+                    </label>
+                    <label>Package manager
+                      <select value={buildPackageManager} onChange={(event) => setBuildPackageManager(event.target.value as BuildJobPackageManager)}>
+                        {BUILD_PACKAGE_MANAGERS.map((manager) => <option key={manager} value={manager}>{manager}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <label htmlFor="build-commit-input">Commit SHA ({selected.branch})</label>
+                  <div className="repo-input-row">
+                    <input id="build-commit-input" value={buildCommitSha} onChange={(event) => setBuildCommitSha(event.target.value.trim())} placeholder="Full 40-character commit SHA" autoComplete="off" spellCheck={false} maxLength={40} />
+                    <button className="text-button" type="button" onClick={() => void fetchLatestBranchCommit()} disabled={buildCommitLoading || !selected.repositoryUrl}>{buildCommitLoading ? "Reading…" : "Use latest"}</button>
+                    <button className="primary-button" type="submit" disabled={buildQueueing || !/^[a-f0-9]{40}$/i.test(buildCommitSha)}>{buildQueueing ? "Queueing…" : "Queue build"}</button>
+                  </div>
+                  <p className="repo-help">Builds require a connected GitHub App installation and a configured isolated runner. The runner inspects the commit independently; the framework you pick here is a request, not a guarantee.</p>
+                </form>
+                {buildJobsError && <div className="repo-error" role="alert">{buildJobsError}</div>}
+                {buildJobsLoading && buildJobs.length === 0 ? <div className="empty-state">Loading build jobs…</div>
+                  : buildJobs.length === 0 ? <div className="empty-state">No builds have been queued for this project yet.</div>
+                  : <div className="webhook-list">{buildJobs.map((job) => {
+                    const state = describeBuildJob(job);
+                    const cancellable = job.status === "pending" || job.status === "processing";
+                    const frameworkLabel = BUILD_FRAMEWORKS.find((option) => option.value === job.framework)?.label ?? job.framework;
+                    return <div className="webhook-row" key={job.id}>
+                      <div className="webhook-row-main">
+                        <span className={"health-tag " + state.tone}><i />{state.label}</span>
+                        <strong>{frameworkLabel}</strong>
+                        <span className="branch-chip">{job.package_manager}</span>
+                        <code>{job.source_commit_sha.slice(0, 7)}</code>
+                        {cancellable && <button className="text-button build-job-cancel" onClick={() => void cancelBuildJob(job.id)} disabled={buildCancelling !== null}>{buildCancelling === job.id ? "Cancelling…" : "Cancel"}</button>}
+                      </div>
+                      <div className="webhook-row-meta">
+                        <span>Attempt {job.attempt_count} / {job.max_attempts}</span>
+                        <span>Queued {new Date(job.created_at).toLocaleString()}</span>
+                        <span>Updated {new Date(job.updated_at).toLocaleString()}</span>
+                        {job.artifact_file_count != null && job.artifact_bytes != null && <span>Output: {job.artifact_file_count} files · {(job.artifact_bytes / 1024 / 1024).toFixed(2)} MiB</span>}
+                        {job.error_code && <span className="webhook-error-code">Error: {job.error_code}</span>}
+                      </div>
+                    </div>;
+                  })}</div>}
+              </div>}
+            {hasActiveBuildJob && <div className="webhook-footnote"><Activity size={13} /> Active builds refresh automatically every 10 seconds.</div>}
           </section>
 
           <section className="panel webhook-panel">

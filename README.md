@@ -126,7 +126,7 @@ Account-owned deployment endpoints support public and authorized private GitHub 
 
 ## Cloudflare Pages static deployment (early milestone)
 
-The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through Wrangler.
+The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through the Cloudflare Pages Direct Upload API. This legacy endpoint stores uploads on local disk and is disabled on Vercel.
 
 Before using it:
 1. Create a Cloudflare API token with **Pages Write** permission.
@@ -143,7 +143,7 @@ curl -X POST "http://localhost:3000/api/uploads/<upload-id>/deploy" \
   -d '{"projectSlug":"my-website"}'
 ```
 
-DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a production branch (for example, `site-my-website`) inside that project's isolated Cloudflare Pages project. The returned URL comes from Wrangler/Cloudflare.
+DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a production branch (for example, `site-my-website`) inside that project's isolated Cloudflare Pages project. The returned URL comes from Cloudflare.
 
 This integration requires a configured Cloudflare account and a pre-created Pages project. No live provider deployment has been performed from this repository yet. Per-user accounts, project ownership, usage billing, cleanup, build execution, GitHub private-repository OAuth, and custom domains remain future work.
 
@@ -156,10 +156,13 @@ The archive safety policy defines path traversal checks and conservative limits 
 - GitHub repository import
 - ZIP project upload
 - Standalone `index.html` upload
-- Build and deployment history
 - Live build logs
-- Project settings and environment variables
+- Per-project environment variables
 - Custom domains and HTTPS (later phase)
+
+## Hosting DEPLO on Vercel
+
+DEPLO itself can be hosted on Vercel; the sites it publishes still go to Cloudflare Pages. Publishing uses the Cloudflare Pages Direct Upload API (no CLI process), background workers are triggered after each request with Vercel Cron as a backstop, and dashboard uploads are capped at 4 MB on Vercel because of its request-body limit. See the step-by-step guide in [docs/VERCEL.md](docs/VERCEL.md).
 
 ## Local development
 
@@ -282,4 +285,6 @@ Migration `0006_durable_build_jobs.sql` adds an account-owned queue for exact-co
 - `DELETE /api/projects/{projectId}/build-jobs/{jobId}` cancels only pending or processing jobs belonging to that same account and project.
 - The database provides atomic `SKIP LOCKED` job claiming, stale-claim recovery, bounded retries, and sanitized error codes for a future worker.
 
-**Important:** this is queue storage and API groundwork only. No build worker is connected; queued jobs do not execute, install dependencies, or deploy. A future worker must use an isolated ephemeral runner with strict resource limits, no deployment secrets in the build environment, validated immutable artifacts, and cancellation/timeout enforcement. The API's submitted framework metadata is a request, not proof that the repository actually uses that framework; the worker must independently inspect the exact commit before building.
+**Dashboard:** GitHub projects have a **Build jobs** panel. Pick a framework and package manager, paste a full commit SHA or click **Use latest** to read the saved branch's head commit, then queue the build. The panel lists each job's state (queued, building, publishing, deployed, failed, cancelled), the attempt count, the output size and any sanitized error code. Pending and processing jobs can be cancelled, and the list refreshes every 10 seconds while a job is active.
+
+**Execution:** the protected `POST /api/internal/build-jobs/process` worker submits queued jobs to the isolated runner, polls the runner, and publishes validated artifacts to the project's Pages site. Jobs run only when that worker is scheduled and a runner is configured (see [Build runner](docs/BUILD_RUNNER.md)). The runner must use an isolated ephemeral runner with strict resource limits, no deployment secrets in the build environment, validated immutable artifacts, and cancellation/timeout enforcement. The API's submitted framework metadata is a request, not proof that the repository actually uses that framework; the worker must independently inspect the exact commit before building.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
+import { drainWorker, isAuthorizedWorkerRequest } from "@/lib/workers/background";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,11 +22,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-function authorized(header: string | null, secret: string): boolean {
-  if (secret.length < 32 || !header?.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice(7)); const expected = Buffer.from(secret);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
 function response(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 }
@@ -89,7 +84,18 @@ async function stageSourceForRunner(job: NonNullable<Awaited<ReturnType<typeof c
 }
 
 export async function POST(request: NextRequest) {
-  if (!authorized(request.headers.get("authorization"), process.env.DEPLO_BUILD_WORKER_SECRET ?? "")) return response({ error: "Authentication required." }, 401);
+  if (!isAuthorizedWorkerRequest(request.headers.get("authorization"), [process.env.DEPLO_BUILD_WORKER_SECRET])) return response({ error: "Authentication required." }, 401);
+  return processNextBuildStep();
+}
+
+// Vercel Cron sends GET with `Authorization: Bearer $CRON_SECRET`; drain the queue as a backstop.
+export async function GET(request: NextRequest) {
+  if (!isAuthorizedWorkerRequest(request.headers.get("authorization"), [process.env.CRON_SECRET, process.env.DEPLO_BUILD_WORKER_SECRET])) return response({ error: "Authentication required." }, 401);
+  const result = await drainWorker(processNextBuildStep);
+  return response(result);
+}
+
+async function processNextBuildStep(): Promise<NextResponse> {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return response({ error: "Build queue storage is not configured." }, 503);
   if (!readBuildRunnerConfiguration()) return response({ error: "The isolated build runner is not configured." }, 503);
 

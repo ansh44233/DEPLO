@@ -2,6 +2,7 @@ import { mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { LEGACY_UPLOADS_UNAVAILABLE_MESSAGE, legacyDiskUploadsAvailable } from "@/lib/hosting/platform";
 import { MAX_ZIP_BYTES, hasHtmlDocument, hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 
@@ -16,6 +17,9 @@ function jsonError(message: string, status: number) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!legacyDiskUploadsAvailable()) {
+    return NextResponse.json({ error: LEGACY_UPLOADS_UNAVAILABLE_MESSAGE }, { status: 501, headers: { "Cache-Control": "no-store" } });
+  }
   const token = process.env.DEPLO_UPLOAD_TOKEN;
   if (!token || token.length < 32) {
     return jsonError("Upload storage is not configured. Set a strong DEPLO_UPLOAD_TOKEN on the server.", 503);

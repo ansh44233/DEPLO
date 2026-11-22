@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { after as afterResponse, NextRequest, NextResponse } from "next/server";
+import { kickWorker } from "@/lib/workers/background";
 import { safeEqual } from "@/lib/auth/session";
 import { normalizeInstallationLifecycleEvent } from "@/lib/github/installation-lifecycle";
 
@@ -142,9 +143,12 @@ export async function POST(request: NextRequest) {
     });
     if (!stored.ok) return error("Webhook event could not be recorded.", 502);
     const rows = await stored.json() as unknown[];
+    const duplicate = !Array.isArray(rows) || rows.length === 0;
+    // Process the delivery right after responding to GitHub; cron and retries remain the backstop.
+    if (!duplicate) afterResponse(() => kickWorker("/api/internal/github-webhooks/process", process.env.DEPLO_WEBHOOK_WORKER_SECRET));
     return NextResponse.json({
       accepted: true,
-      duplicate: !Array.isArray(rows) || rows.length === 0,
+      duplicate,
       queued: true,
     }, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch {

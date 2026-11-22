@@ -1,6 +1,7 @@
 import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
+import { LEGACY_UPLOADS_UNAVAILABLE_MESSAGE, legacyDiskUploadsAvailable } from "@/lib/hosting/platform";
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
@@ -16,6 +17,9 @@ function jsonError(message: string, status: number) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  if (!legacyDiskUploadsAvailable()) {
+    return NextResponse.json({ error: LEGACY_UPLOADS_UNAVAILABLE_MESSAGE }, { status: 501, headers: { "Cache-Control": "no-store" } });
+  }
   const token = process.env.DEPLO_UPLOAD_TOKEN;
   if (!token || token.length < 32) return jsonError("Upload storage is not configured.", 503);
   if (!isAuthorizedUploadRequest(request.headers.get("authorization"), token)) {

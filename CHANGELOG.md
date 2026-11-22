@@ -5,6 +5,19 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Vercel hosting support: `vercel.json` with daily cron backstops for the webhook and build workers, and a step-by-step guide in `docs/VERCEL.md`.
+- Pure TypeScript BLAKE3 implementation for Cloudflare Pages asset keys, verified against published test vectors.
+- Worker GET handlers for Vercel Cron (`CRON_SECRET`) that drain each queue within a time budget.
+- Push webhooks and new build jobs now trigger their worker immediately after responding, using `after()`.
+- `/api/deploy/status` reports the host's upload limit; the dashboard rejects oversized uploads before sending and explains HTTP 413 responses.
+- Dashboard **Build jobs** panel for GitHub projects: queue a framework build for an exact commit (with a "Use latest" helper that reads the saved branch's head commit), see the runner and publication state of each job, cancel pending or processing jobs, and auto-refresh while builds are active.
+
+### Changed
+- Cloudflare Pages publishing now uses the Direct Upload API over HTTPS instead of spawning the Wrangler CLI. Identical files are uploaded once and assets Cloudflare already has are skipped. `wrangler` is no longer a dependency.
+- Legacy shared-token `/api/uploads*` endpoints return 501 on Vercel, where local disk does not persist between requests.
+- README now describes the connected build worker instead of stating that queued jobs never run.
+
+### Added
 - Asynchronous isolated build-runner transport with stable idempotency keys, bounded status polling, and strict terminal artifact metadata validation.
 - Durable runner job ID persistence, atomic polling claims, retry scheduling, and a protected background queue processor endpoint.
 - Runner success is recorded as artifact-ready only; deployment success is withheld until an independent artifact validation and publishing pipeline exists.
