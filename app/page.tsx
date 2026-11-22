@@ -839,6 +839,13 @@ export default function Home() {
                       <span className="branch-chip">State: {attempt.observed_state}</span>
                       <span className="branch-chip">Step {Math.min(attempt.next_action_index, attempt.actions.length)} / {attempt.actions.length}</span>
                       <code>{attempt.recovery_key}</code>
+                      <div className="recovery-action-list" aria-label="Planned recovery actions">
+                        {attempt.actions.map((action, index) => (
+                          <span className="branch-chip" key={action + "-" + index}>
+                            {index < attempt.next_action_index ? "Recorded: " : index === attempt.next_action_index ? "Next planned: " : "Planned: "}{action.replaceAll("_", " ")}
+                          </span>
+                        ))}
+                      </div>
                       {attempt.error_code && <span className="webhook-error-code">Reason: {attempt.error_code}</span>}
                       <small>Updated {new Date(attempt.updated_at).toLocaleString()}</small>
                     </div>
