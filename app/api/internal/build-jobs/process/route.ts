@@ -39,7 +39,6 @@ function errorCode(error: unknown): string {
   }
   if (error instanceof BuildArtifactError) {
     if (error.code === "not_configured") return "runner_not_configured";
-    if (error.code === "unavailable") return "runner_unavailable";
     if (error.code === "unavailable") return "artifact_unavailable";
     if (error.code === "rejected") return "artifact_rejected";
     return "artifact_invalid";
