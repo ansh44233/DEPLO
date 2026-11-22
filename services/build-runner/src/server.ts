@@ -192,8 +192,8 @@ export function createRunnerServer(config: RunnerConfig) {
         const result = await cleanupExpiredSources(config.dataDir);
         const workspaces = config.workspaceDir
           ? await cleanupStaleWorkspaces(config.workspaceDir)
-          : { workspacesRemoved: 0, bytesFreed: 0, skipped: 0 };
-        return json(res, 200, { ...result, ...workspaces });
+          : undefined;
+        return json(res, 200, { ...result, ...(workspaces ?? {}) });
       }
       if (req.method === "POST" && path === "/v1/builds") {
         if (!authorized(req, config.token)) return json(res, 401, { error: "unauthorized" });
