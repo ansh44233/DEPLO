@@ -164,6 +164,13 @@ export default function Home() {
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
+  const [deployStartedAt, setDeployStartedAt] = useState<number | null>(null);
+  const [deployElapsed, setDeployElapsed] = useState(0);
+  const [deployResult, setDeployResult] = useState<{ ok: boolean; message: string; log: string | null } | null>(null);
+  const [buildLogOpen, setBuildLogOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [communityHidden, setCommunityHidden] = useState(true);
   const [projectDeleting, setProjectDeleting] = useState(false);
   const [projectNameInput, setProjectNameInput] = useState("");
   const [projectRenaming, setProjectRenaming] = useState(false);
@@ -513,20 +520,28 @@ export default function Home() {
   async function deploySelectedProject() {
     if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
     setProjectDeploying(true);
+    setDeployStartedAt(Date.now());
+    setDeployResult(null);
     setNotice("");
     try {
       const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/deploy", { method: "POST" });
-      const data = await response.json() as { url?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || "Project deployment failed.");
+      const data = await response.json().catch(() => ({})) as { url?: string; error?: string; buildLog?: string; build?: { framework: string; outputDirectory: string; log: string } | null };
+      if (!response.ok) {
+        const message = data.error || (response.status === 504 ? "The deployment took longer than the server allows. Try again; a second build is usually faster." : "Deployment failed with HTTP " + response.status + ".");
+        setDeployResult({ ok: false, message, log: data.buildLog ?? null });
+        throw new Error(message);
+      }
       setProjects((current) => current.map((project) => project.id === selected.id
         ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "just now" }
         : project));
-      setNotice(data.url ? "Deployment published: " + data.url : "Deployment completed.");
+      setDeployResult({ ok: true, message: data.build ? "Built with " + data.build.framework + " and published." : "Published.", log: data.build?.log ?? null });
+      setNotice(data.url ? "Deployed: " + data.url : "Deployment completed.");
       await refreshDeploymentHistory(selected.id, true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Project deployment failed.");
     } finally {
       setProjectDeploying(false);
+      setDeployStartedAt(null);
     }
   }
 
@@ -805,11 +820,55 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!deployStartedAt) { setDeployElapsed(0); return; }
+    const timer = window.setInterval(() => setDeployElapsed(Math.round((Date.now() - deployStartedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [deployStartedAt]);
+
+  useEffect(() => { setDeployResult(null); }, [selected.id]);
+
+  useEffect(() => {
+    try { setCommunityHidden(window.localStorage.getItem("deplo:community-dismissed") === "1"); } catch { setCommunityHidden(false); }
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteQuery("");
+        setPaletteOpen((open) => !open);
+      } else if (event.key === "Escape") {
+        setPaletteOpen(false); setBuildLogOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const isDeployed = Boolean(selected.id) && selected.domain !== "Not deployed yet" && /^https?:\/\//.test(selected.domain);
   const latestDeployment = displayDeployments[0];
   const openProject = (name: string, tab: ProjectTab = "overview") => { setActiveProject(name); setActiveNav("project"); setProjectTab(tab); };
   const goHome = () => { setActiveNav("home"); };
   const providerBlocked = !readinessLoading && !readinessError && readiness && !readiness.ready;
+
+  const fmtElapsed = (seconds: number) => Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+  type PaletteItem = { id: string; label: string; hint?: string; run: () => void };
+  const paletteItems: PaletteItem[] = [
+    { id: "new", label: "New project", hint: "Import, ZIP or HTML", run: () => setModal("github") },
+    { id: "home", label: "All projects", run: goHome },
+    ...(activeNav === "project" && selected.id && selected.sourceType === "github" && readiness?.ready ? [{ id: "deploy", label: "Deploy " + selected.name, hint: "Build and publish", run: () => void deploySelectedProject() }] : []),
+    ...(activeNav === "project" && isDeployed ? [{ id: "visit", label: "Visit " + hostOf(selected.domain), run: () => window.open(selected.domain, "_blank", "noopener") }] : []),
+    ...(activeNav === "project" ? PROJECT_TABS.map((tab) => ({ id: "tab-" + tab.id, label: "Go to " + tab.label, hint: selected.name, run: () => setProjectTab(tab.id) })) : []),
+    ...projects.map((project) => ({ id: "p-" + (project.id ?? project.name), label: project.name, hint: /^https?:/.test(project.domain) ? hostOf(project.domain) : "Project", run: () => openProject(project.name) })),
+    ...(signedInUser
+      ? [{ id: "app", label: githubAppStatus?.connected ? "Manage GitHub App" : "Connect GitHub App", hint: "Private repos and auto-deploy", run: () => { window.location.href = "/api/auth/github/install"; } },
+         { id: "signout", label: "Sign out", run: () => void signOut() }]
+      : [{ id: "signin", label: "Sign in with GitHub", run: () => { window.location.href = "/api/auth/github"; } }]),
+  ];
+  const paletteMatches = paletteItems.filter((item) => (item.label + " " + (item.hint ?? "")).toLowerCase().includes(paletteQuery.trim().toLowerCase())).slice(0, 12);
+  const runPalette = (item: PaletteItem | undefined) => { if (!item) return; setPaletteOpen(false); item.run(); };
+  const dismissCommunity = () => { setCommunityHidden(true); try { window.localStorage.setItem("deplo:community-dismissed", "1"); } catch { /* private mode */ } };
 
   return (
     <div className="shell">
@@ -836,6 +895,9 @@ export default function Home() {
           </>}
         </div>
         <div className="topbar-right">
+          <button className="kbd-trigger" onClick={() => { setPaletteQuery(""); setPaletteOpen(true); }} aria-label="Open command menu">
+            <Search size={14} /><span>Search</span><kbd>Ctrl K</kbd>
+          </button>
           {signedInUser && <a className="btn btn-ghost btn-sm" href="/api/auth/github/install" title="Lets DEPLO read private repositories and redeploy on push">
             <span className={"dot " + (githubAppStatus?.connected ? "dot-ready" : "dot-idle")} />
             {githubAppStatusLoading ? "Checking GitHub App" : githubAppStatus?.connected ? "GitHub App connected" : "Connect GitHub App"}
@@ -896,6 +958,9 @@ export default function Home() {
                 const live = /^https?:\/\//.test(project.domain);
                 return (
                   <button key={project.id ?? project.name} className="card project-card" onClick={() => openProject(project.name)}>
+                    <div className="thumb" aria-hidden="true">
+                      {live ? <iframe src={project.domain} title="" loading="lazy" sandbox="allow-scripts allow-same-origin" tabIndex={-1} /> : <span className="thumb-empty">{project.name[0]?.toUpperCase()}</span>}
+                    </div>
                     <div className="project-card-top">
                       <span className="project-avatar" aria-hidden="true">{project.name[0]?.toUpperCase()}</span>
                       <span className="project-card-name">
@@ -925,10 +990,23 @@ export default function Home() {
               <div className="project-head-actions">
                 {selected.repositoryUrl && <a className="btn btn-secondary" href={selected.repositoryUrl} target="_blank" rel="noreferrer"><Github size={15} /> Repository</a>}
                 {isDeployed && <a className="btn btn-secondary" href={selected.domain} target="_blank" rel="noreferrer">Visit <ExternalLink size={14} /></a>}
-                {selected.id && selected.sourceType === "github" && <button className="btn btn-primary" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>{projectDeploying ? <><Loader2 size={15} className="spin" /> Deploying</> : "Deploy"}</button>}
+                {selected.id && selected.sourceType === "github" && <button className="btn btn-primary" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>{projectDeploying ? <><Loader2 size={15} className="spin" /> Deploying {fmtElapsed(deployElapsed)}</> : isDeployed ? "Redeploy" : "Deploy"}</button>}
               </div>
             </div>
 
+            {projectDeploying && <div className="deploy-strip" role="status">
+              <span className="dot dot-building" />
+              <div><strong>Building and deploying</strong><span className="muted">Cloning, installing and building can take 1 to 3 minutes for framework apps. Plain HTML sites publish in seconds.</span></div>
+              <span className="mono">{fmtElapsed(deployElapsed)}</span>
+            </div>}
+            {!projectDeploying && deployResult && <div className={"deploy-strip " + (deployResult.ok ? "deploy-strip-ok" : "deploy-strip-error")} role={deployResult.ok ? "status" : "alert"}>
+              <span className={"dot " + (deployResult.ok ? "dot-ready" : "dot-error")} />
+              <div><strong>{deployResult.ok ? "Deployed" : "Deployment failed"}</strong><span className="muted">{deployResult.message}</span></div>
+              <div className="deploy-strip-actions">
+                {deployResult.log && <button className="btn btn-secondary btn-sm" onClick={() => setBuildLogOpen(true)}>View build log</button>}
+                <button className="icon-btn" onClick={() => setDeployResult(null)} aria-label="Dismiss"><X size={15} /></button>
+              </div>
+            </div>}
             {!selected.id && <div className="banner">This project only exists in this browser tab. <a href="/api/auth/github">Sign in with GitHub</a> to save and deploy it.</div>}
 
             {projectTab === "overview" && <>
@@ -1183,6 +1261,49 @@ export default function Home() {
           </div>}
         </div>
       </div>}
+
+      {buildLogOpen && deployResult?.log && <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setBuildLogOpen(false); }}>
+        <section className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="build-log-title">
+          <div className="dialog-head">
+            <div><h2 id="build-log-title">Build log</h2><span className="muted">{deployResult.message}</span></div>
+            <div className="row-actions">
+              <button className="btn btn-ghost btn-sm" onClick={() => { void navigator.clipboard?.writeText(deployResult.log ?? ""); setNotice("Build log copied."); }}>Copy</button>
+              <button className="icon-btn" onClick={() => setBuildLogOpen(false)} aria-label="Close build log"><X size={18} /></button>
+            </div>
+          </div>
+          <div className="terminal">{deployResult.log.split("\n").map((line, index) => <div className={"log-line log-line-plain " + (line.startsWith("$ ") ? "log-cmd" : /error|ERR!|failed/i.test(line) ? "log-err" : "")} key={index}><code>{line || " "}</code></div>)}</div>
+        </section>
+      </div>}
+
+      {paletteOpen && <div className="overlay overlay-top" onMouseDown={(event) => { if (event.target === event.currentTarget) setPaletteOpen(false); }}>
+        <div className="palette" role="dialog" aria-modal="true" aria-label="Command menu">
+          <label className="palette-input">
+            <Search size={16} aria-hidden="true" />
+            <input autoFocus value={paletteQuery} onChange={(event) => setPaletteQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") runPalette(paletteMatches[0]); }} placeholder="Search projects and actions" aria-label="Search projects and actions" />
+            <kbd>Esc</kbd>
+          </label>
+          <div className="palette-list" role="listbox">
+            {paletteMatches.length === 0 ? <p className="muted palette-empty">Nothing matches “{paletteQuery}”.</p>
+              : paletteMatches.map((item, index) => <button key={item.id} role="option" aria-selected={index === 0} className={"palette-item " + (index === 0 ? "palette-item-first" : "")} onClick={() => runPalette(item)}>
+                <span>{item.label}</span>{item.hint && <span className="muted">{item.hint}</span>}
+              </button>)}
+          </div>
+        </div>
+      </div>}
+
+      {!communityHidden && <aside className="community" aria-label="DEPLO is open source">
+        <button className="icon-btn community-close" onClick={dismissCommunity} aria-label="Dismiss"><X size={15} /></button>
+        <div className="community-art" aria-hidden="true">
+          <img src="/deplo-mark.svg" alt="" width={28} height={28} />
+          <span className="community-trail" />
+        </div>
+        <strong>Built in the open.</strong>
+        <p className="muted">DEPLO is open source. Star the repo, report a bug, or send a pull request.</p>
+        <div className="community-actions">
+          <a className="btn btn-secondary btn-sm" href="https://github.com/ansh44233/DEPLO" target="_blank" rel="noreferrer" onClick={dismissCommunity}><Github size={14} /> Star</a>
+          <a className="btn btn-secondary btn-sm" href="https://github.com/ansh44233/DEPLO/issues/new" target="_blank" rel="noreferrer">Report a bug</a>
+        </div>
+      </aside>}
 
       {logsDeploymentId && <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setLogsDeploymentId(null); }}>
         <section className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="deployment-logs-title">
