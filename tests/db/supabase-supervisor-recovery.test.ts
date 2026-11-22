@@ -5,6 +5,7 @@ import {
   beginDurableSupervisorRecovery,
   blockDurableSupervisorRecovery,
   claimNextDurableSupervisorRecovery,
+  listDurableSupervisorRecoveriesForJobs,
   SupervisorRecoveryStoreError,
   type DurableSupervisorRecoveryRecord,
 } from "../../lib/db/supabase-supervisor-recovery";
@@ -130,5 +131,45 @@ test("does not leak provider response details on failure", async () => {
   await assert.rejects(
     claimNextDurableSupervisorRecovery(env, failing),
     (error: unknown) => error instanceof SupervisorRecoveryStoreError && !error.message.includes("private provider diagnostic"),
+  );
+});
+
+
+test("lists recovery attempts only for supplied owner-scoped job IDs", async () => {
+  let requested = "";
+  let headers = new Headers();
+  const rows = await listDurableSupervisorRecoveriesForJobs([record.job_id], env,
+    async (url, init) => {
+      requested = String(url);
+      headers = new Headers(init?.headers);
+      return Response.json([record]);
+    });
+  const url = new URL(requested);
+  assert.equal(url.pathname, "/rest/v1/build_job_recovery_attempts");
+  assert.equal(url.searchParams.get("job_id"), "in.(" + record.job_id + ")");
+  assert.equal(url.searchParams.get("limit"), "100");
+  assert.equal(headers.get("apikey"), env.SUPABASE_SERVICE_ROLE_KEY);
+  assert.deepEqual(rows.map((row) => row.id), [record.id]);
+});
+
+test("returns no recovery attempts without querying storage when there are no jobs", async () => {
+  let called = false;
+  const rows = await listDurableSupervisorRecoveriesForJobs([], env, async () => {
+    called = true;
+    return Response.json([]);
+  });
+  assert.deepEqual(rows, []);
+  assert.equal(called, false);
+});
+
+test("rejects malformed job IDs and invalid recovery history rows", async () => {
+  await assert.rejects(
+    listDurableSupervisorRecoveriesForJobs(["not-a-uuid"], env),
+    (error: unknown) => error instanceof SupervisorRecoveryStoreError && error.status === 400,
+  );
+  await assert.rejects(
+    listDurableSupervisorRecoveriesForJobs([record.job_id], env,
+      async () => Response.json([{ ...record, internal_payload: "must-not-be-returned" }])),
+    /invalid record/,
   );
 });
