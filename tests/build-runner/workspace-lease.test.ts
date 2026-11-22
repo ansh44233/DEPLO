@@ -96,3 +96,31 @@ test("invalid lease timestamps are rejected", async () => {
     assert.deepEqual(await inspectWorkspaceLease(root, 20, HOUR), { state: "invalid" });
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
+
+test("concurrent heartbeats are serialized and cannot move lease time backwards", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "deplo-lease-order-"));
+  try {
+    const root = join(parent, "job-order");
+    await mkdir(root);
+    const lease = await createWorkspaceLease(root, 10 * HOUR);
+    await Promise.all([lease.heartbeat(12 * HOUR), lease.heartbeat(13 * HOUR)]);
+    const state = await inspectWorkspaceLease(root, 13 * HOUR, 24 * HOUR);
+    assert.equal(state.state, "active");
+    if (state.state === "active") assert.equal(state.lease.heartbeatAt, 13 * HOUR);
+    await assert.rejects(lease.heartbeat(11 * HOUR), /workspace_heartbeat_out_of_order/);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test("a stale lease handle cannot refresh a marker owned by another lease", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "deplo-lease-owner-"));
+  try {
+    const root = join(parent, "job-owner");
+    await mkdir(root);
+    const lease = await createWorkspaceLease(root, 10 * HOUR);
+    await writeFile(join(root, ".deplo-workspace-lease.json"), JSON.stringify({
+      version: 1, leaseId: "00000000-0000-4000-8000-000000000000",
+      workspaceId: "job-owner", createdAt: 10 * HOUR, heartbeatAt: 11 * HOUR,
+    }));
+    await assert.rejects(lease.heartbeat(12 * HOUR), /workspace_lease_ownership_lost/);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
