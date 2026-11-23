@@ -1,3 +1,4 @@
+import { skipWithoutPosixModes } from "../helpers/platform";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -5,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectSandboxHost } from "../../services/build-runner/src/host-preflight";
 
-test("reports the Firecracker jailer prerequisite independently", async () => {
+test("reports the Firecracker jailer prerequisite independently", { skip: skipWithoutPosixModes }, async () => {
   const root = await mkdtemp(join(tmpdir(), "deplo-preflight-"));
   try {
     const jailer = join(root, "jailer");

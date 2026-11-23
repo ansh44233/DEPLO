@@ -21,6 +21,33 @@ function projectEndpoint(config: CloudflarePagesConfig): URL {
   );
 }
 
+function projectsCollectionEndpoint(config: CloudflarePagesConfig): URL {
+  return new URL(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/pages/projects`);
+}
+
+/** Cloudflare's own error code and message, safe to show: it never echoes the token. */
+async function describeCloudflareError(response: Response): Promise<string> {
+  let detail = "HTTP " + response.status;
+  try {
+    const payload = await response.json() as { errors?: { code?: unknown; message?: unknown }[] };
+    const first = payload.errors?.[0];
+    if (first && typeof first.message === "string") {
+      detail += ", " + (typeof first.code === "number" ? first.code + " " : "") + first.message.slice(0, 160);
+    }
+  } catch { /* non-JSON body */ }
+  if (response.status === 401 || response.status === 403) {
+    detail += ". Check that CLOUDFLARE_API_TOKEN has the Cloudflare Pages: Edit permission and CLOUDFLARE_ACCOUNT_ID is the right account.";
+  }
+  return detail;
+}
+
+/** The project's stable https://<subdomain>.pages.dev URL (the subdomain can differ from the name if it was taken). */
+export function productionUrlOf(payload: CloudflareProjectPayload, config: CloudflarePagesConfig): string {
+  const subdomain = isRecord(payload.result) && typeof payload.result.subdomain === "string" ? payload.result.subdomain : "";
+  if (/^[a-z0-9-]+\.pages\.dev$/.test(subdomain)) return "https://" + subdomain;
+  return "https://" + config.projectName + ".pages.dev";
+}
+
 function verifyProjectPayload(payload: CloudflareProjectPayload, config: CloudflarePagesConfig, productionBranch: string): void {
   if (
     payload.success !== true ||
@@ -48,7 +75,8 @@ export function getAccountPagesTarget(
     .update(String(ownerGithubId) + ":" + projectSlug)
     .digest("hex")
     .slice(0, 16);
-  const projectName = "deplo-" + suffix + "-" + projectSlug.slice(0, 40);
+  // Cloudflare Pages project names are limited to 58 characters.
+  const projectName = ("deplo-" + suffix + "-" + projectSlug.slice(0, 35)).replace(/-+$/, "");
   const productionBranch = "site-" + projectSlug;
 
   return {
@@ -61,7 +89,7 @@ export async function ensureCloudflarePagesProject(
   config: CloudflarePagesConfig,
   productionBranch: string,
   fetcher: typeof fetch = fetch,
-): Promise<void> {
+): Promise<{ productionUrl: string }> {
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(config.projectName)) {
     throw new Error("Invalid Cloudflare Pages project name.");
   }
@@ -84,13 +112,16 @@ export async function ensureCloudflarePagesProject(
   if (existing.ok) {
     const payload = await existing.json() as CloudflareProjectPayload;
     verifyProjectPayload(payload, config, productionBranch);
-    return;
+    return { productionUrl: productionUrlOf(payload, config) };
   }
   if (existing.status !== 404) {
-    throw new Error("Cloudflare Pages project status could not be checked.");
+    const detail = await describeCloudflareError(existing);
+    console.error("[deplo] Cloudflare Pages project lookup failed:", detail);
+    throw new Error("Cloudflare Pages project status could not be checked (" + detail + ")");
   }
 
-  const created = await fetcher(endpoint, {
+  // Projects are created on the collection endpoint, not on /projects/{name}.
+  const created = await fetcher(projectsCollectionEndpoint(config), {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ name: config.projectName, production_branch: productionBranch }),
@@ -106,12 +137,19 @@ export async function ensureCloudflarePagesProject(
       cache: "no-store",
     });
     if (!raced.ok) throw new Error("Cloudflare Pages project could not be verified after a concurrent create.");
-    verifyProjectPayload(await raced.json() as CloudflareProjectPayload, config, productionBranch);
-    return;
+    const racedPayload = await raced.json() as CloudflareProjectPayload;
+    verifyProjectPayload(racedPayload, config, productionBranch);
+    return { productionUrl: productionUrlOf(racedPayload, config) };
   }
-  if (!created.ok) throw new Error("Cloudflare Pages project could not be created.");
+  if (!created.ok) {
+    const detail = await describeCloudflareError(created);
+    console.error("[deplo] Cloudflare Pages project creation failed:", detail);
+    throw new Error("Cloudflare Pages project could not be created (" + detail + ")");
+  }
 
-  verifyProjectPayload(await created.json() as CloudflareProjectPayload, config, productionBranch);
+  const createdPayload = await created.json() as CloudflareProjectPayload;
+  verifyProjectPayload(createdPayload, config, productionBranch);
+  return { productionUrl: productionUrlOf(createdPayload, config) };
 }
 
 

@@ -1,157 +1,71 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSpotlight } from "./fx";
+import type { AccountProject, Project, ProjectTab, Modal } from "@/lib/dashboard/types";
+import { timeAgo, stableSiteUrl, slugify } from "@/lib/dashboard/format";
+import { initialProjects } from "@/lib/dashboard/constants";
 import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
-import {
-  Activity, ArrowDownToLine, ArrowUpRight, Bell, Check, ChevronDown,
-  ChevronRight, CircleHelp, Clock3, Cloud, Code2, Command, ExternalLink,
-  FileArchive, FileCode2, FolderGit2, Gauge, Github, Globe2, HardDrive,
-  LayoutDashboard, LifeBuoy, MoreHorizontal, Plus, Search, Settings2,
-  RefreshCw, RotateCcw, ShieldCheck, Sparkles, TerminalSquare, UploadCloud, X
-} from "lucide-react";
-
-type RepositoryInfo = {
-  fullName: string; description: string | null; url: string; defaultBranch: string;
-  stars: number; language: string | null; branches: { name: string; commit: string }[];
-};
-
-type DeploymentReadiness = {
-  provider: "cloudflare-pages";
-  configured: boolean;
-  uploadAuthenticationConfigured: boolean;
-  legacySharedProjectConfigured: boolean;
-  ready: boolean;
-  missing: string[];
-};
-
-type CloudflareDeploymentLog = { timestamp: string | null; line: string };
-type CustomDomain = { id: string; name: string; status: string; validation: { method: "http" | "txt" | null; status: string; error: string | null; txtName: string | null; txtValue: string | null }; verification: { status: string; error: string | null }; createdAt: string | null };
-type WebhookDelivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; status: "received" | "processing" | "deployed" | "ignored" | "failed"; received_at: string; processed_at: string | null; attempt_count: number; available_at: string; last_error_code: string | null; };
-type RecoveryAttempt = { id: string; job_id: string; recovery_key: string; journal_sequence: number; observed_state: string; disposition: string; actions: string[]; next_action_index: number; status: "pending" | "reconciling" | "completed" | "blocked"; claimed_at: string | null; error_code: string | null; created_at: string; updated_at: string; };
-
-type CloudflareDeployment = {
-  id: string;
-  url: string;
-  environment: string;
-  createdAt: string | null;
-  branch: string | null;
-  commitMessage: string | null;
-  commitSha: string | null;
-  status: "success" | "failure" | "building" | "unknown";
-};
-
-type SignedInUser = { id: number; login: string; name: string | null; avatarUrl: string | null };
-type GitHubAppStatus = { configured: boolean; connected: boolean; accountLogin: string | null; accountType: "User" | "Organization" | null };
-type AccountProject = {
-  id: string; name: string; slug: string; source_type: "github" | "zip" | "html";
-  repository_url: string | null; branch: string | null; deployment_url: string | null;
-  created_at: string; updated_at: string;
-};
-
-type Project = {
-  id?: string;
-  slug?: string;
-  sourceType?: AccountProject["source_type"];
-  name: string;
-  domain: string;
-  source: string;
-  branch: string;
-  status: "Healthy" | "Building" | "Failed" | "Connected";
-  updated: string;
-  accent: string;
-};
-
-const initialProjects: Project[] = [
-  { name: "frontend", domain: "frontend-deplo.pages.dev", source: "github.com/ansh44233/frontend", branch: "main", status: "Healthy", updated: "4 min ago", accent: "violet" },
-  { name: "docs-site", domain: "docs-site-deplo.pages.dev", source: "ZIP upload", branch: "production", status: "Healthy", updated: "Yesterday", accent: "blue" },
-  { name: "portfolio", domain: "portfolio-deplo.pages.dev", source: "index.html", branch: "—", status: "Healthy", updated: "2 days ago", accent: "pink" },
-];
-
-
+import { buildPaletteItems, filterPaletteItems, type PaletteItem } from "@/lib/dashboard/palette";
+import { useAuth } from "@/hooks/use-auth";
+import { useBuildJobs } from "@/hooks/use-build-jobs";
+import { useCustomDomains } from "@/hooks/use-custom-domains";
+import { useDeploymentHistory } from "@/hooks/use-deployment-history";
+import { useEnvVars } from "@/hooks/use-env-vars";
+import { useNotice } from "@/hooks/use-notice";
+import { useReadiness } from "@/hooks/use-readiness";
+import { useRecoveryAttempts } from "@/hooks/use-recovery-attempts";
+import { useRepoImport } from "@/hooks/use-repo-import";
+import { useWebhookDeliveries } from "@/hooks/use-webhook-deliveries";
+import { ActivityTab } from "@/components/dashboard/ActivityTab";
+import { BuildLogDialog } from "@/components/dashboard/BuildLogDialog";
+import { BuildsTab } from "@/components/dashboard/BuildsTab";
+import { CommandPalette } from "@/components/dashboard/CommandPalette";
+import { CommunityCard } from "@/components/dashboard/CommunityCard";
+import { DeploymentLogsDialog } from "@/components/dashboard/DeploymentLogsDialog";
+import { DeploymentsTab } from "@/components/dashboard/DeploymentsTab";
+import { DomainsTab } from "@/components/dashboard/DomainsTab";
+import { EnvironmentTab } from "@/components/dashboard/EnvironmentTab";
+import { Footer } from "@/components/dashboard/Footer";
+import { HomeView } from "@/components/dashboard/HomeView";
+import { NewProjectDialog } from "@/components/dashboard/NewProjectDialog";
+import { OverviewTab } from "@/components/dashboard/OverviewTab";
+import { ProjectHeader } from "@/components/dashboard/ProjectHeader";
+import { ProjectTabsNav } from "@/components/dashboard/ProjectTabsNav";
+import { SettingsTab } from "@/components/dashboard/SettingsTab";
+import { Toast } from "@/components/dashboard/Toast";
+import { TopBar } from "@/components/dashboard/TopBar";
 
 export default function Home() {
-  const [activeProject, setActiveProject] = useState("frontend");
-  const [activeNav, setActiveNav] = useState("Overview");
-  const [modal, setModal] = useState<"github" | "repo" | "upload" | "html" | null>(null);
-  const [repoUrl, setRepoUrl] = useState("");
-  const [repoInfo, setRepoInfo] = useState<RepositoryInfo | null>(null);
-  const [repoBranch, setRepoBranch] = useState("");
-  const [repoLoading, setRepoLoading] = useState(false);
-  const [repoError, setRepoError] = useState("");
+  useSpotlight();
+  const [activeProject, setActiveProject] = useState("");
+  const [activeNav, setActiveNav] = useState<"home" | "project">("home");
+  const [projectTab, setProjectTab] = useState<ProjectTab>("overview");
+  const [modal, setModal] = useState<Modal>(null);
   const [search, setSearch] = useState("");
   const [projects, setProjects] = useState(initialProjects);
-  const [notice, setNotice] = useState("");
   const [fileName, setFileName] = useState("");
   const [uploadError, setUploadError] = useState("");
-  const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);
-  const [readinessLoading, setReadinessLoading] = useState(true);
-  const [readinessError, setReadinessError] = useState("");
-  const [cloudflareDeployments, setCloudflareDeployments] = useState<CloudflareDeployment[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [historyError, setHistoryError] = useState("");
-  const [webhookDeliveries, setWebhookDeliveries] = useState<WebhookDelivery[]>([]);
-  const [webhookLoading, setWebhookLoading] = useState(false);
-  const [webhookError, setWebhookError] = useState("");
-  const [recoveryAttempts, setRecoveryAttempts] = useState<RecoveryAttempt[]>([]);
-  const [recoveryLoading, setRecoveryLoading] = useState(false);
-  const [recoveryError, setRecoveryError] = useState("");
-  const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
-  const [githubAppStatus, setGithubAppStatus] = useState<GitHubAppStatus | null>(null);
-  const [githubAppStatusLoading, setGithubAppStatusLoading] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsFetched, setProjectsFetched] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
+  const [deployStartedAt, setDeployStartedAt] = useState<number | null>(null);
+  const [deployElapsed, setDeployElapsed] = useState(0);
+  const [deployResult, setDeployResult] = useState<{ ok: boolean; message: string; log: string | null } | null>(null);
+  const [buildLogOpen, setBuildLogOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [communityHidden, setCommunityHidden] = useState(true);
   const [projectDeleting, setProjectDeleting] = useState(false);
   const [projectNameInput, setProjectNameInput] = useState("");
   const [projectRenaming, setProjectRenaming] = useState(false);
   const [rollbackDeploymentId, setRollbackDeploymentId] = useState<string | null>(null);
-  const [logsDeploymentId, setLogsDeploymentId] = useState<string | null>(null);
-  const [deploymentLogs, setDeploymentLogs] = useState<CloudflareDeploymentLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [logsError, setLogsError] = useState("");
-  const [customDomains, setCustomDomains] = useState<CustomDomain[]>([]);
-  const [domainsLoading, setDomainsLoading] = useState(false);
-  const [domainsError, setDomainsError] = useState("");
-  const [domainInput, setDomainInput] = useState("");
-  const [domainSaving, setDomainSaving] = useState(false);
-  const [domainDeleting, setDomainDeleting] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/deploy/status", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Could not load provider status.");
-        return response.json() as Promise<DeploymentReadiness>;
-      })
-      .then((data) => { if (!cancelled) setReadiness(data); })
-      .catch(() => { if (!cancelled) setReadinessError("Provider status is unavailable."); })
-      .finally(() => { if (!cancelled) setReadinessLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  const refreshDeploymentHistory = useCallback(async (projectId?: string, authenticated = false) => {
-    if (!authenticated || !projectId) {
-      setCloudflareDeployments([]);
-      setHistoryError("");
-      setHistoryLoading(false);
-      return;
-    }
-    setHistoryLoading(true);
-    setHistoryError("");
-    try {
-      const response = await fetch("/api/deploy/history?projectId=" + encodeURIComponent(projectId), { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Deployment history is unavailable.");
-      setCloudflareDeployments((data as { deployments: CloudflareDeployment[] }).deployments);
-    } catch (error) {
-      setHistoryError(error instanceof Error ? error.message : "Deployment history is unavailable.");
-      setCloudflareDeployments([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, []);
+  const { notice, setNotice } = useNotice();
+  const { readiness, readinessLoading, readinessError } = useReadiness();
+  const { signedInUser, setSignedInUser, githubAppStatus, setGithubAppStatus, githubAppStatusLoading, authLoading } = useAuth({ setNotice });
 
   useEffect(() => {
     if (!signedInUser) return;
@@ -171,14 +85,15 @@ export default function Home() {
           id: project.id,
           slug: project.slug,
           sourceType: project.source_type,
+          repositoryUrl: project.repository_url,
           name: project.name,
-          domain: project.deployment_url || "Not deployed yet",
+          domain: stableSiteUrl(project.deployment_url) || "Not deployed yet",
           source: project.source_type === "github"
             ? project.repository_url?.replace("https://", "") || "GitHub repository"
             : project.source_type === "zip" ? "ZIP upload" : "index.html",
           branch: project.branch || "—",
           status: project.deployment_url ? "Healthy" : "Connected",
-          updated: new Date(project.updated_at).toLocaleString(),
+          updated: timeAgo(project.updated_at),
           accent: "violet",
         }));
         setProjects(owned);
@@ -187,51 +102,25 @@ export default function Home() {
       .catch((error) => {
         if (!cancelled) setProjectsError(error instanceof Error ? error.message : "Could not load your saved projects.");
       })
-      .finally(() => { if (!cancelled) setProjectsLoading(false); });
+      .finally(() => { if (!cancelled) { setProjectsLoading(false); setProjectsFetched(true); } });
     return () => { cancelled = true; };
   }, [signedInUser]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/auth/session", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Could not check sign-in status.");
-        return response.json() as Promise<{ authenticated: boolean; user: SignedInUser | null }>;
-      })
-      .then((data) => { if (!cancelled) setSignedInUser(data.authenticated ? data.user : null); })
-      .catch(() => { if (!cancelled) setSignedInUser(null); })
-      .finally(() => { if (!cancelled) setAuthLoading(false); });
-    const authResult = new URLSearchParams(window.location.search).get("auth");
-    if (authResult === "success") setNotice("Signed in with GitHub. Your saved projects are loading.");
-    if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
-    const appResult = new URLSearchParams(window.location.search).get("github_app");
-    if (appResult === "connected") setNotice("GitHub App connected. Private repository push deployments are enabled for repositories selected in the installation.");
-    if (appResult === "error") setNotice("GitHub App installation could not be linked. Check the app setup URL, private key, and database migration.");
-    if (appResult === "cancelled") setNotice("GitHub App installation was cancelled.");
-    if (appResult === "signin_required") setNotice("Sign in with GitHub before installing the DEPLO GitHub App.");
-    if (authResult || appResult) window.history.replaceState({}, "", window.location.pathname);
-    return () => { cancelled = true; };
-  }, []);
+  const selected = projects.find((project) => project.name === activeProject) ?? projects[0] ?? {
+    name: "No project selected", domain: "—", source: "—", branch: "—",
+    status: "Connected" as const, updated: "—", accent: "violet",
+  };
+  useEffect(() => { setProjectNameInput(selected.name); }, [selected.id, selected.name]);
 
-  useEffect(() => {
-    if (!signedInUser) {
-      setGithubAppStatus(null);
-      setGithubAppStatusLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setGithubAppStatusLoading(true);
-    fetch("/api/auth/github/app-status", { cache: "no-store" })
-      .then(async (response) => {
-        const data = await response.json() as GitHubAppStatus & { error?: string };
-        if (!response.ok) throw new Error(data.error || "Could not load GitHub App status.");
-        return data;
-      })
-      .then((data) => { if (!cancelled) setGithubAppStatus(data); })
-      .catch(() => { if (!cancelled) setGithubAppStatus(null); })
-      .finally(() => { if (!cancelled) setGithubAppStatusLoading(false); });
-    return () => { cancelled = true; };
-  }, [signedInUser]);
+  const history = useDeploymentHistory({ selected, signedInUser });
+  const { cloudflareDeployments, setCloudflareDeployments, refreshDeploymentHistory, setLogsDeploymentId, setDeploymentLogs } = history;
+  const domains = useCustomDomains({ selected, signedInUser, setNotice });
+  const webhooks = useWebhookDeliveries({ selected, signedInUser });
+  const recovery = useRecoveryAttempts({ selected, signedInUser });
+  const builds = useBuildJobs({ selected, signedInUser, setNotice });
+  const repo = useRepoImport({ signedInUser, modal });
+  const { repoInfo, repoBranch, importEnvText, setImportEnvText } = repo;
+  const env = useEnvVars({ selected, signedInUser, projectTab, setNotice });
 
   async function signOut() {
     try {
@@ -249,149 +138,34 @@ export default function Home() {
     }
   }
 
-
-
-  const selected = projects.find((project) => project.name === activeProject) ?? projects[0] ?? {
-    name: "No project selected", domain: "—", source: "—", branch: "—",
-    status: "Connected" as const, updated: "—", accent: "violet",
-  };
-  useEffect(() => { setProjectNameInput(selected.name); }, [selected.id, selected.name]);
-  useEffect(() => {
-    void refreshDeploymentHistory(selected.id, Boolean(signedInUser));
-  }, [refreshDeploymentHistory, selected.id, signedInUser]);
-
-  const refreshCustomDomains = useCallback(async (projectId?: string, authenticated = false) => {
-    if (!authenticated || !projectId) {
-      setCustomDomains([]);
-      setDomainsError("");
-      setDomainsLoading(false);
-      return;
-    }
-    setDomainsLoading(true);
-    setDomainsError("");
-    try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/domains", { cache: "no-store" });
-      const data = await response.json() as { domains?: CustomDomain[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "Custom domains could not be loaded.");
-      setCustomDomains(Array.isArray(data.domains) ? data.domains : []);
-    } catch (error) {
-      setDomainsError(error instanceof Error ? error.message : "Custom domains could not be loaded.");
-      setCustomDomains([]);
-    } finally {
-      setDomainsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshCustomDomains(selected.id, Boolean(signedInUser));
-  }, [refreshCustomDomains, selected.id, signedInUser]);
-
-  async function addCustomDomain() {
-    if (!selected.id || !signedInUser || !domainInput.trim() || domainSaving) return;
-    setDomainSaving(true);
-    setDomainsError("");
-    try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/domains", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: domainInput }),
-      });
-      const data = await response.json() as { domain?: CustomDomain; error?: string };
-      if (!response.ok) throw new Error(data.error || "Domain could not be added.");
-      setDomainInput("");
-      await refreshCustomDomains(selected.id, true);
-      setNotice("Domain added to Cloudflare Pages. Follow the DNS instructions and refresh its status.");
-    } catch (error) {
-      setDomainsError(error instanceof Error ? error.message : "Domain could not be added.");
-    } finally {
-      setDomainSaving(false);
-    }
-  }
-
-  async function removeCustomDomain(domain: string) {
-    if (!selected.id || !signedInUser || domainDeleting) return;
-    if (!window.confirm("Remove " + domain + " from this Pages project? Its DNS record may also need to be removed at your DNS provider.")) return;
-    setDomainDeleting(domain);
-    setDomainsError("");
-    try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/domains?domain=" + encodeURIComponent(domain), { method: "DELETE" });
-      const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error || "Domain could not be removed.");
-      await refreshCustomDomains(selected.id, true);
-      setNotice(domain + " was removed from the Pages project.");
-    } catch (error) {
-      setDomainsError(error instanceof Error ? error.message : "Domain could not be removed.");
-    } finally {
-      setDomainDeleting(null);
-    }
-  }
-
-
-  const refreshWebhookDeliveries = useCallback(async (projectId?: string, authenticated = false) => {
-    if (!authenticated || !projectId) { setWebhookDeliveries([]); setWebhookError(""); setWebhookLoading(false); return; }
-    setWebhookLoading(true); setWebhookError("");
-    try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/webhook-deliveries", { cache: "no-store" });
-      const data = await response.json() as { deliveries?: WebhookDelivery[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "GitHub delivery activity is unavailable.");
-      setWebhookDeliveries(Array.isArray(data.deliveries) ? data.deliveries : []);
-    } catch (error) {
-      setWebhookError(error instanceof Error ? error.message : "GitHub delivery activity is unavailable."); setWebhookDeliveries([]);
-    } finally { setWebhookLoading(false); }
-  }, []);
-
-  useEffect(() => {
-    void refreshWebhookDeliveries(selected.id, Boolean(signedInUser) && selected.sourceType === "github");
-  }, [refreshWebhookDeliveries, selected.id, selected.sourceType, signedInUser]);
-
-  const refreshRecoveryAttempts = useCallback(async (projectId?: string, authenticated = false) => {
-    if (!authenticated || !projectId) {
-      setRecoveryAttempts([]);
-      setRecoveryError("");
-      setRecoveryLoading(false);
-      return;
-    }
-    setRecoveryLoading(true);
-    setRecoveryError("");
-    try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/recovery-attempts", { cache: "no-store" });
-      const data = await response.json() as { attempts?: RecoveryAttempt[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "Recovery history is unavailable.");
-      setRecoveryAttempts(Array.isArray(data.attempts) ? data.attempts : []);
-    } catch (error) {
-      setRecoveryError(error instanceof Error ? error.message : "Recovery history is unavailable.");
-      setRecoveryAttempts([]);
-    } finally {
-      setRecoveryLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshRecoveryAttempts(selected.id, Boolean(signedInUser));
-  }, [refreshRecoveryAttempts, selected.id, signedInUser]);
-
-  async function deploySelectedProject() {
-    if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
+  async function deploySelectedProject(target?: { id: string }) {
+    const projectId = target?.id ?? selected.id;
+    if (!projectId || (!target && selected.sourceType !== "github") || !signedInUser || projectDeploying) return;
     setProjectDeploying(true);
+    setDeployStartedAt(Date.now());
+    setDeployResult(null);
     setNotice("");
     try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/deploy", { method: "POST" });
-      const data = await response.json() as { url?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || "Project deployment failed.");
-      setProjects((current) => current.map((project) => project.id === selected.id
-        ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "Just now" }
+      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/deploy", { method: "POST" });
+      const data = await response.json().catch(() => ({})) as { url?: string; error?: string; buildLog?: string; build?: { framework: string; outputDirectory: string; log: string } | null };
+      if (!response.ok) {
+        const message = data.error || (response.status === 504 ? "The deployment took longer than the server allows. Try again; a second build is usually faster." : "Deployment failed with HTTP " + response.status + ".");
+        setDeployResult({ ok: false, message, log: data.buildLog ?? null });
+        throw new Error(message);
+      }
+      setProjects((current) => current.map((project) => project.id === projectId
+        ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "just now" }
         : project));
-      setNotice(data.url ? "Deployment published: " + data.url : "Deployment completed.");
-      await refreshDeploymentHistory(selected.id, true);
+      setDeployResult({ ok: true, message: data.build ? "Built with " + data.build.framework + " and published." : "Published.", log: data.build?.log ?? null });
+      setNotice(data.url ? "Deployed: " + data.url : "Deployment completed.");
+      await refreshDeploymentHistory(projectId, true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Project deployment failed.");
     } finally {
       setProjectDeploying(false);
+      setDeployStartedAt(null);
     }
   }
-
-
-
 
   async function renameSelectedProject() {
     if (!selected.id || !signedInUser || projectRenaming) return;
@@ -403,7 +177,7 @@ export default function Home() {
       const response = await fetch("/api/projects/" + encodeURIComponent(selected.id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
       const data = await response.json() as { project?: AccountProject; error?: string };
       if (!response.ok || !data.project) throw new Error(data.error || "Project name could not be updated.");
-      setProjects(current => current.map(project => project.id === selected.id ? { ...project, name: data.project!.name, updated: "Just now" } : project));
+      setProjects(current => current.map(project => project.id === selected.id ? { ...project, name: data.project!.name, updated: "just now" } : project));
       setActiveProject(data.project.name);
       setNotice("Project name updated. Its deployment URL and repository settings are unchanged.");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Project name could not be updated."); }
@@ -439,27 +213,6 @@ export default function Home() {
     }
   }
 
-  async function openDeploymentLogs(deploymentId: string) {
-    if (!selected.id || !signedInUser) return;
-    setLogsDeploymentId(deploymentId);
-    setDeploymentLogs([]);
-    setLogsError("");
-    setLogsLoading(true);
-    try {
-      const response = await fetch(
-        "/api/projects/" + encodeURIComponent(selected.id) + "/deployments/" + encodeURIComponent(deploymentId) + "/logs",
-        { cache: "no-store" },
-      );
-      const data = await response.json() as { logs?: CloudflareDeploymentLog[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "Deployment logs could not be loaded.");
-      setDeploymentLogs(Array.isArray(data.logs) ? data.logs : []);
-    } catch (error) {
-      setLogsError(error instanceof Error ? error.message : "Deployment logs could not be loaded.");
-    } finally {
-      setLogsLoading(false);
-    }
-  }
-
   async function rollbackSelectedDeployment(deploymentId: string) {
     if (!selected.id || !signedInUser || rollbackDeploymentId) return;
     const confirmed = window.confirm("Roll back " + selected.name + " to this previous successful production deployment? This changes the live production version.");
@@ -476,7 +229,7 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "Deployment rollback failed.");
       if (data.url) {
         setProjects((current) => current.map((project) => project.id === selected.id
-          ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "Just now" }
+          ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "just now" }
           : project));
       }
       setNotice(data.warning || "Production rolled back successfully" + (data.url ? ": " + data.url : "."));
@@ -494,7 +247,8 @@ export default function Home() {
     message: deployment.commitMessage || deployment.url,
     commitSha: deployment.commitSha,
     branch: deployment.branch || "—",
-    time: deployment.createdAt ? new Date(deployment.createdAt).toLocaleString() : "—",
+    time: deployment.createdAt ? timeAgo(deployment.createdAt) : "—",
+    createdAt: deployment.createdAt,
     status: deployment.status === "success" ? "Ready" : deployment.status === "failure" ? "Failed" : deployment.status === "building" ? "Building" : "Unknown",
     duration: "Cloudflare",
     url: deployment.url,
@@ -505,28 +259,15 @@ export default function Home() {
     [projects, search]
   );
 
-  async function inspectRepository() {
-    setRepoLoading(true); setRepoError(""); setRepoInfo(null);
-    try {
-      const response = await fetch("/api/github/repository?url=" + encodeURIComponent(repoUrl));
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not inspect this repository.");
-      setRepoInfo({ ...data.repository, branches: data.branches });
-      setRepoBranch(data.repository.defaultBranch);
-    } catch (error) {
-      setRepoError(error instanceof Error ? error.message : "Something went wrong.");
-    } finally { setRepoLoading(false); }
-  }
-
-  async function addRepositoryPreview() {
+  async function addRepositoryPreview(deployNow = false) {
     if (!repoInfo) return;
     const projectName = repoInfo.fullName.split("/")[1].toLowerCase();
-    const slug = projectName.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58);
+    const slug = slugify(projectName);
     const newProject: Project = {
       slug,
       name: projectName, domain: "Not deployed yet",
-      source: "github.com/" + repoInfo.fullName, branch: repoBranch,
-      status: "Connected", updated: "Just now", accent: "violet",
+      source: "github.com/" + repoInfo.fullName, branch: repoBranch, repositoryUrl: repoInfo.url, sourceType: "github",
+      status: "Connected", updated: "just now", accent: "violet",
     };
     if (signedInUser) {
       setProjectSaving(true);
@@ -539,11 +280,26 @@ export default function Home() {
         const data = await response.json() as { project: AccountProject; error?: string };
         if (!response.ok) throw new Error(data.error || "Could not save this project.");
         const savedProject = { ...newProject, id: data.project.id, slug: data.project.slug, sourceType: data.project.source_type };
+        if (importEnvText.trim()) {
+          const envResponse = await fetch("/api/projects/" + encodeURIComponent(data.project.id) + "/env", {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dotenv: importEnvText }),
+          });
+          if (!envResponse.ok) {
+            const envData = await envResponse.json().catch(() => ({})) as { error?: string };
+            setNotice("Imported, but the environment variables were not saved: " + (envData.error || "HTTP " + envResponse.status));
+          }
+        }
         setProjects((current) => [savedProject, ...current.filter((project) => project.name !== projectName)]);
         setActiveProject(projectName);
-        setActiveNav("Projects");
-        setNotice("Project saved to your GitHub account. It has not been deployed yet.");
+        setActiveNav("project"); setProjectTab("overview");
+        setImportEnvText("");
         setModal(null);
+        if (deployNow && readiness?.ready) {
+          setProjectSaving(false);
+          void deploySelectedProject({ id: data.project.id });
+        } else {
+          setNotice("Imported " + projectName + ". Press Deploy to publish it.");
+        }
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "Could not save this project.");
       } finally {
@@ -552,14 +308,16 @@ export default function Home() {
       return;
     }
     setProjects((current) => [newProject, ...current.filter((project) => project.name !== projectName)]);
-    setActiveProject(projectName); setActiveNav("Projects");
-    setNotice("Repository added to this dashboard preview. Sign in and configure Supabase to save projects to your account.");
+    setActiveProject(projectName); setActiveNav("project"); setProjectTab("overview");
+    setNotice("Imported. Sign in with GitHub to save and deploy it.");
     setModal(null);
   }
 
   async function startUpload(file: File | undefined, kind: "zip" | "html") {
     if (!file) return;
     setUploadError("");
+    const hostLimit = readiness?.maxUploadBytes;
+    // Files above the host's request limit are uploaded straight to private storage instead.
     const validationError = validateUploadSelection(file.name, file.size, kind);
     if (validationError) {
       setUploadError(validationError);
@@ -576,7 +334,7 @@ export default function Home() {
       }
     } else {
       const html = await file.text();
-      if (!/<html[\\s>]/i.test(html) && !/<!doctype\\s+html/i.test(html)) {
+      if (!/<html[\s>]/i.test(html) && !/<!doctype\s+html/i.test(html)) {
         setUploadError("The file should contain a complete HTML document.");
         setFileName("");
         return;
@@ -590,8 +348,8 @@ export default function Home() {
       return;
     }
 
-    const baseName = file.name.replace(/\\.[^.]+$/, "").trim().slice(0, 60) || "Uploaded site";
-    const slug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58) || "uploaded-site";
+    const baseName = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 60) || "Uploaded site";
+    const slug = slugify(baseName) || "uploaded-site";
     setProjectSaving(true);
     setNotice("Creating your project and preparing the upload…");
     try {
@@ -619,33 +377,55 @@ export default function Home() {
         slug: savedAccountProject.slug,
         sourceType: savedAccountProject.source_type,
         name: savedAccountProject.name,
-        domain: savedAccountProject.deployment_url || "Not deployed yet",
+        domain: stableSiteUrl(savedAccountProject.deployment_url) || "Not deployed yet",
         source: kind === "zip" ? "ZIP upload" : "index.html",
         branch: "—",
         status: savedAccountProject.deployment_url ? "Healthy" : "Connected",
-        updated: new Date(savedAccountProject.updated_at).toLocaleString(),
+        updated: timeAgo(savedAccountProject.updated_at),
         accent: "violet",
       };
       setProjects((current) => [previewProject, ...current.filter((project) => project.id !== previewProject.id)]);
 
-      const form = new FormData();
-      form.append("file", file);
-      const uploadResponse = await fetch("/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload", {
-        method: "POST",
-        body: form,
-      });
-      const uploadData = await uploadResponse.json() as { url?: string; error?: string };
-      if (!uploadResponse.ok) throw new Error(uploadData.error || "Upload deployment failed.");
+      const uploadEndpoint = "/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload";
+      let uploadResponse: Response;
+      if (hostLimit && file.size > hostLimit) {
+        setNotice("Uploading " + (file.size / 1024 / 1024).toFixed(1) + " MB to private storage…");
+        const linkResponse = await fetch("/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload-url", { method: "POST" });
+        const link = await linkResponse.json().catch(() => ({})) as { uploadUrl?: string; path?: string; error?: string };
+        if (!linkResponse.ok || !link.uploadUrl || !link.path) throw new Error(link.error || "Could not start the upload.");
+        const body = new FormData();
+        body.append("cacheControl", "60");
+        body.append("", file);
+        const put = await fetch(link.uploadUrl, { method: "PUT", body });
+        if (!put.ok) throw new Error("The file could not be uploaded to storage (HTTP " + put.status + ").");
+        setNotice(kind === "zip" ? "Uploaded. Building and deploying…" : "Uploaded. Deploying…");
+        uploadResponse = await fetch(uploadEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stagedPath: link.path, fileName: file.name }),
+        });
+      } else {
+        const form = new FormData();
+        form.append("file", file);
+        uploadResponse = await fetch(uploadEndpoint, { method: "POST", body: form });
+      }
+      if (uploadResponse.status === 413) throw new Error("This upload is larger than the host allows. Deploy larger sites from GitHub instead.");
+      const uploadData = await uploadResponse.json().catch(() => ({})) as { url?: string; error?: string; buildLog?: string; build?: { framework: string; log: string } | null };
+      if (!uploadResponse.ok) {
+        if (uploadData.buildLog) setDeployResult({ ok: false, message: uploadData.error || "The build failed.", log: uploadData.buildLog });
+        throw new Error(uploadData.error || "Upload deployment failed (HTTP " + uploadResponse.status + ").");
+      }
+      if (uploadData.build) setDeployResult({ ok: true, message: "Built with " + uploadData.build.framework + " and published.", log: uploadData.build.log });
 
       const deployedProject: Project = {
         ...previewProject,
         domain: uploadData.url || previewProject.domain,
         status: "Healthy",
-        updated: "Just now",
+        updated: "just now",
       };
       setProjects((current) => [deployedProject, ...current.filter((project) => project.id !== deployedProject.id)]);
       setActiveProject(deployedProject.name);
-      setActiveNav("Projects");
+      setActiveNav("project"); setProjectTab("overview");
       setNotice(uploadData.url ? "Your site is live: " + uploadData.url : "Upload deployment completed.");
       setModal(null);
     } catch (error) {
@@ -655,323 +435,139 @@ export default function Home() {
     }
   }
 
+  useEffect(() => {
+    if (!deployStartedAt) { setDeployElapsed(0); return; }
+    const timer = window.setInterval(() => setDeployElapsed(Math.round((Date.now() - deployStartedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [deployStartedAt]);
+
+  useEffect(() => { setDeployResult(null); }, [selected.id]);
+
+  useEffect(() => {
+    let dismissed = false;
+    try { dismissed = window.localStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
+    if (dismissed) return;
+    if (!window.matchMedia("(max-width: 640px)").matches) { setCommunityHidden(false); return; }
+    // On phones the compact strip arrives a moment after load, or as soon as the visitor scrolls.
+    const show = () => { setCommunityHidden(false); window.removeEventListener("scroll", show); window.clearTimeout(timer); };
+    const timer = window.setTimeout(show, 2500);
+    window.addEventListener("scroll", show, { passive: true, once: true });
+    return () => { window.clearTimeout(timer); window.removeEventListener("scroll", show); };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteQuery("");
+        setPaletteOpen((open) => !open);
+      } else if (event.key === "Escape") {
+        setPaletteOpen(false); setBuildLogOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const isDeployed = Boolean(selected.id) && selected.domain !== "Not deployed yet" && /^https?:\/\//.test(selected.domain);
+  const latestDeployment = displayDeployments[0];
+  const openProject = (name: string, tab: ProjectTab = "overview") => { setActiveProject(name); setActiveNav("project"); setProjectTab(tab); };
+  const goHome = () => { setActiveNav("home"); };
+  const providerBlocked = !readinessLoading && !readinessError && readiness && !readiness.ready;
+
+  const paletteItems = buildPaletteItems({
+    activeNav, selected, isDeployed, readiness, projects, signedInUser, githubAppStatus,
+    openNewProject: () => setModal("github"),
+    goHome,
+    deploySelectedProject: () => void deploySelectedProject(),
+    setProjectTab,
+    openProject,
+    signOut: () => void signOut(),
+  });
+  const paletteMatches = filterPaletteItems(paletteItems, paletteQuery);
+  const runPalette = (item: PaletteItem | undefined) => { if (!item) return; setPaletteOpen(false); item.run(); };
+  const dismissCommunity = () => { setCommunityHidden(true); try { window.localStorage.setItem("deplo:community-dismissed", "1"); } catch { /* private mode */ } };
+
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#" aria-label="DEPLO home">
-          <img className="brand-logo" src="/deplo-mark.svg" alt="" />
-          <span>deplo</span>
-          <span className="brand-beta">BETA</span>
-        </a>
+    <div className="shell">
+      <TopBar
+        goHome={goHome} authLoading={authLoading} signedInUser={signedInUser} activeNav={activeNav} selected={selected}
+        setPaletteQuery={setPaletteQuery} setPaletteOpen={setPaletteOpen}
+        githubAppStatus={githubAppStatus} githubAppStatusLoading={githubAppStatusLoading} signOut={signOut}
+      />
 
-        <button className="workspace-switcher">
-          <span className="workspace-avatar">A</span>
-          <span className="workspace-copy"><strong>Personal workspace</strong><small>Free plan</small></span>
-          <ChevronDown size={15} />
-        </button>
+      {activeNav === "project" && <ProjectTabsNav projectTab={projectTab} setProjectTab={setProjectTab} hasActiveBuildJob={builds.hasActiveBuildJob} />}
 
-        <div className="side-label">WORKSPACE</div>
-        <nav className="side-nav" aria-label="Main navigation">
-          {[
-            { label: "Overview", icon: LayoutDashboard },
-            { label: "Projects", icon: FolderGit2 },
-            { label: "Deployments", icon: Cloud },
-            { label: "Analytics", icon: Gauge },
-          ].map(({ label, icon: Icon }) => (
-            <button key={label} className={`nav-item ${activeNav === label ? "active" : ""}`} onClick={() => setActiveNav(label)}>
-              <Icon size={17} /><span>{label}</span>
-              {label === "Deployments" && <span className="nav-count">{cloudflareDeployments.length}</span>}
-            </button>
-          ))}
-        </nav>
+      <main className="page">
+        {providerBlocked && <div className="banner banner-warn" role="status">
+          <strong>Deployments are paused.</strong> The server is missing {readiness?.missing.join(", ")}. Add {readiness && readiness.missing.length > 1 ? "them" : "it"} to the environment and redeploy DEPLO.
+        </div>}
 
-        <div className="side-label side-label-spaced">DEVELOP</div>
-        <nav className="side-nav" aria-label="Developer navigation">
-          <button className={`nav-item ${activeNav === "Domains" ? "active" : ""}`} onClick={() => setActiveNav("Domains")}><Globe2 size={17} /><span>Domains</span></button>
-          <button className={"nav-item " + (activeNav === "Recovery" ? "active" : "")} onClick={() => setActiveNav("Recovery")}><ShieldCheck size={17} /><span>Recovery</span><span className="nav-count">{recoveryAttempts.length}</span></button>
-          <button className="nav-item" onClick={() => setNotice("Storage settings are coming in a later release.")}><HardDrive size={17} /><span>Storage</span></button>
-          <button className="nav-item" onClick={() => setNotice("Environment variables are planned for the next milestone.")}><Settings2 size={17} /><span>Environment</span></button>
-        </nav>
+        {activeNav === "home" ? (
+          <HomeView
+            signedInUser={signedInUser} projects={projects} search={search} setSearch={setSearch} setModal={setModal}
+            projectsError={projectsError} authLoading={authLoading} projectsLoading={projectsLoading || (Boolean(signedInUser) && !projectsFetched)}
+            filteredProjects={filteredProjects} openProject={openProject}
+          />
+        ) : (
+          <>
+            <ProjectHeader
+              goHome={goHome} selected={selected} isDeployed={isDeployed} projectDeploying={projectDeploying} deployElapsed={deployElapsed}
+              readiness={readiness} deploySelectedProject={deploySelectedProject} deployResult={deployResult}
+              setBuildLogOpen={setBuildLogOpen} setDeployResult={setDeployResult}
+            />
 
-        <div className="sidebar-bottom">
-          <div className="usage-card">
-            <div className="usage-top"><span>Workspace mode</span><span>Preview</span></div>
-            <div className="preview-note">Sample projects · live deployment history</div>
-            <small>No builds or hosting usage are being counted yet.</small>
-            <button onClick={() => setNotice("Billing and usage tracking will be configured after a deployment provider is connected.")}>About preview <ArrowUpRight size={13} /></button>
-          </div>
-          <button className="nav-item"><CircleHelp size={17} /><span>Help & support</span></button>
-          <button className="nav-item"><Settings2 size={17} /><span>Settings</span></button>
-          <div className="profile-row">
-            <div className="profile-avatar">A</div>
-            <div className="profile-copy"><strong>Workspace owner</strong><small>Personal account</small></div>
-            <MoreHorizontal size={18} />
-          </div>
-        </div>
-      </aside>
+            {projectTab === "overview" && <OverviewTab
+              selected={selected} isDeployed={isDeployed} projectDeploying={projectDeploying} readiness={readiness}
+              deploySelectedProject={deploySelectedProject} deployElapsed={deployElapsed} setProjectTab={setProjectTab}
+              latestDeployment={latestDeployment} displayDeployments={displayDeployments} signedInUser={signedInUser}
+              rollbackSelectedDeployment={rollbackSelectedDeployment} rollbackDeploymentId={rollbackDeploymentId}
+              domains={domains} history={history}
+            />}
+            {projectTab === "deployments" && <DeploymentsTab
+              selected={selected} signedInUser={signedInUser} displayDeployments={displayDeployments}
+              rollbackSelectedDeployment={rollbackSelectedDeployment} rollbackDeploymentId={rollbackDeploymentId} history={history}
+            />}
+            {projectTab === "builds" && <BuildsTab selected={selected} signedInUser={signedInUser} builds={builds} recovery={recovery} />}
+            {projectTab === "environment" && <EnvironmentTab
+              selected={selected} signedInUser={signedInUser} isDeployed={isDeployed} projectDeploying={projectDeploying}
+              readiness={readiness} deploySelectedProject={deploySelectedProject} env={env}
+            />}
+            {projectTab === "domains" && <DomainsTab selected={selected} signedInUser={signedInUser} isDeployed={isDeployed} domains={domains} />}
+            {projectTab === "activity" && <ActivityTab selected={selected} signedInUser={signedInUser} webhooks={webhooks} />}
+            {projectTab === "settings" && <SettingsTab
+              signedInUser={signedInUser} selected={selected} projectNameInput={projectNameInput} setProjectNameInput={setProjectNameInput}
+              renameSelectedProject={renameSelectedProject} projectRenaming={projectRenaming} githubAppStatus={githubAppStatus}
+              deleteSelectedProject={deleteSelectedProject} projectDeleting={projectDeleting}
+            />}
+          </>
+        )}
+      </main>
 
-      <section className="main-panel">
-        <header className="topbar">
-          <div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{activeNav}</strong></div>
-          <div className="topbar-actions">
-            <div className="status-pill preview-pill"><span className="status-dot preview-dot" /> Preview environment</div>
-            <button className="icon-button" aria-label="Search" onClick={() => document.getElementById("project-search")?.focus()}><Search size={17} /></button>
-            <button className="icon-button notification-button" aria-label="Notifications"><Bell size={17} /><i /></button>
-            {authLoading ? <span className="top-avatar">…</span> : signedInUser ? <><a className="text-button" href="/api/auth/github/install" title="Manage GitHub App installation">{githubAppStatusLoading ? "Checking GitHub App…" : githubAppStatus?.connected ? "GitHub App · " + (githubAppStatus.accountLogin ?? "Connected") : "Install GitHub App"}</a><button className="text-button" onClick={() => void signOut()} title={signedInUser.login}>Sign out</button></> : <a className="text-button" href="/api/auth/github"><Github size={14} /> Sign in with GitHub</a>}
-          </div>
-        </header>
+      <Footer readiness={readiness} readinessLoading={readinessLoading} readinessError={readinessError} />
 
-        <div className="content">
-          <div className="welcome-row">
-            <div>
-              <div className="eyebrow"><Sparkles size={13} /> DEPLO · WORKSPACE PREVIEW</div>
-              <h1>{activeNav === "Overview" ? "Good afternoon." : activeNav}</h1>
-              <p className="page-subtitle">Manage projects and inspect deployment activity from your connected provider.</p>
-            </div>
-            <button className="primary-button" onClick={() => setModal("github")}><Plus size={17} /> New project</button>
-          </div>
+      {notice && <Toast notice={notice} setNotice={setNotice} />}
 
-          {notice && <div className="notice"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X size={15} /></button></div>}
+      {modal && <NewProjectDialog
+        modal={modal} setModal={setModal} setUploadError={setUploadError} setFileName={setFileName}
+        signedInUser={signedInUser} projectSaving={projectSaving} readiness={readiness}
+        addRepositoryPreview={addRepositoryPreview} projects={projects} startUpload={startUpload}
+        fileName={fileName} uploadError={uploadError} repo={repo}
+      />}
 
-          <section className={`provider-readiness ${readiness?.ready ? "is-ready" : "is-pending"}`} aria-live="polite">
-            <div className="provider-readiness-icon"><ShieldCheck size={17} /></div>
-            <div className="provider-readiness-copy">
-              <strong>{readinessLoading ? "Checking deployment provider…" : readinessError ? "Provider status unavailable" : readiness?.ready ? "Cloudflare Pages is configured" : "Cloudflare Pages setup required"}</strong>
-              <span>{readinessLoading ? "Reading server configuration." : readinessError ? readinessError : readiness?.ready ? "Required settings are present. Provider credentials have not been verified." : `Missing or invalid settings: ${readiness?.missing.join(", ") || "upload authentication token"}.`}</span>
-            </div>
-            <span className="provider-readiness-state">{readinessLoading ? "CHECKING" : readinessError ? "UNKNOWN" : readiness?.ready ? "CONFIGURED" : "NOT READY"}</span>
-          </section>
+      {buildLogOpen && deployResult?.log && <BuildLogDialog message={deployResult.message} log={deployResult.log} setBuildLogOpen={setBuildLogOpen} setNotice={setNotice} />}
 
-          <div className="stats-grid">
-            <Stat icon={<FolderGit2 size={17} />} label="Total projects" value={String(projects.length).padStart(2, "0")} detail={signedInUser ? "Saved to your account" : "Preview workspace"} />
-            <Stat icon={<Cloud size={17} />} label="Deployments" value={String(cloudflareDeployments.length).padStart(2, "0")} detail={historyLoading ? "Loading provider records" : historyError ? "Provider history unavailable" : "Cloudflare Pages records"} />
-            <Stat icon={<Activity size={17} />} label="Live deployments" value={String(cloudflareDeployments.filter((deployment) => deployment.status === "success").length).padStart(2, "0")} detail="Successful provider deployments" />
-            <Stat icon={<Gauge size={17} />} label="Build pipeline" value="—" detail="Not configured yet" />
-          </div>
+      {paletteOpen && <CommandPalette
+        setPaletteOpen={setPaletteOpen} paletteQuery={paletteQuery} setPaletteQuery={setPaletteQuery}
+        runPalette={runPalette} paletteMatches={paletteMatches}
+      />}
 
-          <div className="dashboard-grid">
-            <section className="panel projects-panel">
-              <div className="panel-heading">
-                <div><h2>Your projects</h2><p>Manage your deployed applications.</p></div>
-                <button className="text-button" onClick={() => setActiveNav("Projects")}>View all <ArrowUpRight size={14} /></button>
-              </div>
-              <div className="project-toolbar">
-                <div className="search-field"><Search size={15} /><input id="project-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search projects..." /></div>
-                <button className="filter-button"><span>All projects</span><ChevronDown size={14} /></button>
-              </div>
-              {projectsError && <div className="repo-error" role="alert">{projectsError}</div>}
-              <div className="project-list">
-                {projectsLoading && <div className="empty-state">Loading your saved projects…</div>}
-                {!projectsLoading && filteredProjects.map((project) => (
-                  <button key={project.name} className={`project-row ${activeProject === project.name ? "selected" : ""}`} onClick={() => setActiveProject(project.name)}>
-                    <div className={`project-icon ${project.accent}`}><Code2 size={18} /></div>
-                    <div className="project-main"><strong>{project.name}</strong><small>{project.source}</small></div>
-                    <div className="project-domain"><span>{project.domain}</span><small>{project.updated}</small></div>
-                    <span className={`health-tag ${project.status.toLowerCase()}`}><i />{project.status}</span>
-                    <ChevronRight className="row-chevron" size={16} />
-                  </button>
-                ))}
-                {!projectsLoading && !projectsError && filteredProjects.length === 0 && <div className="empty-state">{signedInUser ? "No saved projects yet. Import a repository to get started." : "No projects match your search."}</div>}
-              </div>
-              <button className="add-project-row" onClick={() => setModal("github")}><Plus size={16} /> Add a project</button>
-            </section>
+      {!communityHidden && activeNav === "home" && <CommunityCard dismissCommunity={dismissCommunity} />}
 
-            <section className="panel selected-panel">
-              <div className="panel-heading">
-                <div><div className="section-kicker">SELECTED PROJECT</div><h2>{selected.name}</h2></div>
-                {selected.id && signedInUser && <button className="text-button" onClick={() => void deleteSelectedProject()} disabled={projectDeleting}>{projectDeleting ? "Deleting…" : "Delete project"}</button>}
-              </div>
-              <div className="selected-domain"><Globe2 size={15} /><span>{selected.domain}</span><ExternalLink size={13} /></div>
-              <div className="selected-status"><span className={"status-dot " + (selected.status === "Connected" ? "status-dot-idle" : "")} /> {selected.status === "Connected" ? "Repository connected · not deployed" : "Production deployment is healthy"}</div>
-              <div className="project-details">
-                <Detail label="Production branch" value={selected.branch} icon={<Github size={15} />} />
-                <Detail label="Latest deployment" value={selected.updated} icon={<Clock3 size={15} />} />
-                <Detail label="Source" value={selected.source} icon={<FolderGit2 size={15} />} />
-              </div>
-              {selected.id && selected.sourceType === "github" && <button className="primary-button deploy-project-button" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>{projectDeploying ? "Deploying…" : "Deploy to Cloudflare Pages"} <ArrowUpRight size={14} /></button>}
-              {selected.id && signedInUser && <form className="project-settings-form" onSubmit={(event) => { event.preventDefault(); void renameSelectedProject(); }}><label htmlFor="project-display-name">Project name</label><div className="repo-input-row"><input id="project-display-name" value={projectNameInput} onChange={(event) => setProjectNameInput(event.target.value)} maxLength={60} /><button className="outline-button" type="submit" disabled={projectRenaming || !projectNameInput.trim() || projectNameInput.trim() === selected.name}>{projectRenaming ? "Saving…" : "Save name"}</button></div><p className="repo-help">Changes the dashboard name only. Project slug, hosted URL, repository, and deployment branch stay the same.</p></form>}
-            </section>
-          </div>
-
-          <section className="panel domains-panel">
-            <div className="panel-heading">
-              <div><div className="section-kicker">CUSTOM DOMAINS</div><h2>Domains for {selected.name}</h2><p>Connect a hostname to this project's Cloudflare Pages site.</p></div>
-              <button className="text-button" onClick={() => void refreshCustomDomains(selected.id, Boolean(signedInUser))} disabled={domainsLoading || !selected.id || !signedInUser}><RefreshCw size={14} className={domainsLoading ? "spin" : ""} /> Refresh</button>
-            </div>
-            {!signedInUser ? <div className="empty-state">Sign in with GitHub to manage custom domains for your projects.</div>
-              : !selected.id ? <div className="empty-state">Select an account-owned project to manage its domains.</div>
-              : <div className="domain-manager">
-                <form className="domain-add-form" onSubmit={(event) => { event.preventDefault(); void addCustomDomain(); }}>
-                  <label htmlFor="custom-domain-input">Domain name</label>
-                  <div className="repo-input-row"><input id="custom-domain-input" value={domainInput} onChange={(event) => setDomainInput(event.target.value)} placeholder="www.example.com" autoComplete="off" /><button className="primary-button" type="submit" disabled={domainSaving || !domainInput.trim() || !selected.domain || selected.domain === "Not deployed yet"}>{domainSaving ? "Adding…" : "Add domain"}</button></div>
-                  <p className="repo-help">Deploy this project first. Apex domains require the domain to be a Cloudflare zone; subdomains can use a CNAME at your DNS provider.</p>
-                </form>
-                {domainsError && <div className="repo-error" role="alert">{domainsError}</div>}
-                {domainsLoading ? <div className="empty-state">Loading Cloudflare domain status…</div>
-                  : customDomains.length === 0 ? <div className="empty-state">{selected.domain === "Not deployed yet" ? "Deploy this project before connecting a domain." : "No custom domains are connected yet."}</div>
-                  : <div className="domain-list">{customDomains.map((domain) => <article className="domain-item" key={domain.name}>
-                    <div className="domain-item-top"><div><strong>{domain.name}</strong><span className={"health-tag " + (domain.status === "active" ? "healthy" : domain.status === "error" || domain.status === "blocked" ? "failed" : "building")}><i />{domain.status}</span></div><button className="text-button" onClick={() => void removeCustomDomain(domain.name)} disabled={domainDeleting !== null}>{domainDeleting === domain.name ? "Removing…" : "Remove"}</button></div>
-                    <div className="domain-dns"><strong>DNS configuration</strong><span>For a subdomain, create a CNAME record pointing to <code>{selected.domain}</code>. Add the domain in DEPLO first so Cloudflare can issue its certificate.</span>
-                      {domain.validation.method === "txt" && domain.validation.txtName && domain.validation.txtValue && <div className="dns-record"><small>TXT verification record</small><code>{domain.validation.txtName}</code><code>{domain.validation.txtValue}</code></div>}
-                      {domain.validation.error && <span className="domain-error">{domain.validation.error}</span>}
-                      {domain.verification.error && <span className="domain-error">{domain.verification.error}</span>}
-                    </div>
-                    <div className="domain-status-line">Validation: {domain.validation.status} · Certificate: {domain.verification.status}</div>
-                  </article>)}</div>}
-              </div>}
-          </section>
-
-          <section className="panel webhook-panel">
-            <div className="panel-heading">
-              <div><h2>Build recovery history</h2><p>{recoveryLoading ? "Loading recovery records…" : recoveryError ? recoveryError : "Read-only recovery ledger for this project's build jobs. Records describe planned reconciliation, not proof that host actions ran."}</p></div>
-              <button className="text-button" onClick={() => void refreshRecoveryAttempts(selected.id, Boolean(signedInUser))} disabled={recoveryLoading || !selected.id || !signedInUser}><RefreshCw size={14} className={recoveryLoading ? "spin" : ""} /> {recoveryLoading ? "Refreshing…" : "Refresh"}</button>
-            </div>
-            {!signedInUser ? <div className="empty-state">Sign in with GitHub to view recovery history for your projects.</div>
-              : recoveryError ? <div className="webhook-error" role="alert">{recoveryError}</div>
-              : recoveryLoading && recoveryAttempts.length === 0 ? <div className="empty-state">Loading recovery history…</div>
-              : recoveryAttempts.length ? <div className="webhook-list">
-                {recoveryAttempts.map((attempt) => {
-                  const statusClass = attempt.status === "completed" ? "healthy" : attempt.status === "blocked" ? "failed" : attempt.status === "reconciling" ? "building" : "queued";
-                  return <div className="webhook-row" key={attempt.id}>
-                    <div className="webhook-row-main">
-                      <span className={"health-tag " + statusClass}><i />{attempt.status}</span>
-                      <strong>{attempt.disposition.replaceAll("_", " ")}</strong>
-                      <span className="branch-chip">State: {attempt.observed_state}</span>
-                      <span className="branch-chip">Step {Math.min(attempt.next_action_index, attempt.actions.length)} / {attempt.actions.length}</span>
-                      <code>{attempt.recovery_key}</code>
-                      <div className="recovery-action-list" aria-label="Planned recovery actions">
-                        {attempt.actions.map((action, index) => (
-                          <span className="branch-chip" key={action + "-" + index}>
-                            {index < attempt.next_action_index ? "Recorded: " : index === attempt.next_action_index ? "Next planned: " : "Planned: "}{action.replaceAll("_", " ")}
-                          </span>
-                        ))}
-                      </div>
-                      {attempt.error_code && <span className="webhook-error-code">Reason: {attempt.error_code}</span>}
-                      <small>Updated {new Date(attempt.updated_at).toLocaleString()}</small>
-                    </div>
-                  </div>;
-                })}
-              </div>
-              : <div className="empty-state">No recovery attempts have been recorded for this project's build jobs.</div>}
-            <p className="page-subtitle">Safety: this page is observational only. DEPLO does not yet execute recovery actions or enable untrusted framework builds.</p>
-          </section>
-
-          <section className="panel webhook-panel">
-            <div className="panel-heading">
-              <div><h2>GitHub push activity</h2><p>{webhookLoading ? "Loading verified webhook deliveries…" : webhookError ? webhookError : selected.sourceType !== "github" ? "Connect a GitHub repository to inspect automatic redeployments." : webhookDeliveries.length ? "Verified pushes and automatic deployment retry activity for this repository." : "No GitHub push deliveries have been recorded for this repository yet."}</p></div>
-              <button className="text-button" onClick={() => void refreshWebhookDeliveries(selected.id, Boolean(signedInUser) && selected.sourceType === "github")} disabled={webhookLoading || !selected.id || !signedInUser || selected.sourceType !== "github"}><RefreshCw size={14} className={webhookLoading ? "spin" : ""} /> {webhookLoading ? "Refreshing…" : "Refresh"}</button>
-            </div>
-            {!signedInUser ? <div className="empty-state">Sign in with GitHub to view delivery activity for your own projects.</div>
-              : webhookError ? <div className="webhook-error" role="alert">{webhookError}</div>
-              : webhookLoading && webhookDeliveries.length === 0 ? <div className="empty-state">Loading GitHub delivery activity…</div>
-              : webhookDeliveries.length ? <div className="webhook-list">
-                {webhookDeliveries.map((delivery) => {
-                  const statusLabel = delivery.status === "received" ? (delivery.attempt_count > 0 ? "Retry queued" : "Queued") : delivery.status === "processing" ? "Deploying" : delivery.status === "deployed" ? "Deployed" : delivery.status === "ignored" ? "Ignored" : "Failed";
-                  const statusClass = delivery.status === "deployed" ? "healthy" : delivery.status === "failed" ? "failed" : delivery.status === "processing" ? "building" : "queued";
-                  return <div className="webhook-row" key={delivery.delivery_id}>
-                    <div className="webhook-row-main">
-                      <span className={"health-tag " + statusClass}><i />{statusLabel}</span>
-                      <strong>{delivery.repository_full_name}</strong>
-                      <span className="branch-chip"><Github size={11} /> {delivery.branch}</span>
-                      <code>{delivery.commit_sha.slice(0, 7)}</code>
-                    </div>
-                    <div className="webhook-row-meta">
-                      <span>{delivery.attempt_count} {delivery.attempt_count === 1 ? "attempt" : "attempts"}</span>
-                      <span>Received {new Date(delivery.received_at).toLocaleString()}</span>
-                      {delivery.status === "received" && delivery.attempt_count > 0 && <span>Next retry {new Date(delivery.available_at).toLocaleString()}</span>}
-                      {delivery.last_error_code && <span className="webhook-error-code">Error: {delivery.last_error_code}</span>}
-                    </div>
-                  </div>;
-                })}
-              </div>
-              : <div className="empty-state">{selected.sourceType === "github" ? "Push to the connected repository branch to create a delivery record." : "This project does not use GitHub webhooks."}</div>}
-            <div className="webhook-footnote"><ShieldCheck size={13} /> Delivery details are scoped to this signed-in project owner. Secrets and raw webhook payloads are never shown.</div>
-          </section>
-          <section className="panel deployments-panel">
-            <div className="panel-heading">
-              <div><h2>Deployment history</h2><p>{historyLoading ? "Loading Cloudflare Pages deployments…" : historyError ? historyError : cloudflareDeployments.length ? "Latest deployments from your Cloudflare Pages project." : "No deployments found in the configured Cloudflare Pages project."}</p></div>
-              <button className="text-button" onClick={() => void refreshDeploymentHistory(selected.id, Boolean(signedInUser))} disabled={historyLoading}><RefreshCw size={14} className={historyLoading ? "spin" : ""} /> {historyLoading ? "Refreshing…" : "Refresh"}</button>
-            </div>
-            <div className="deployment-table-wrap">
-              <table className="deployment-table">
-                <thead><tr><th>PROJECT</th><th>DEPLOYMENT</th><th>BRANCH</th><th>STATUS</th><th>TIME</th><th>ACTIONS</th></tr></thead>
-                <tbody>
-                  {displayDeployments.map((deployment) => (
-                    <tr key={deployment.id}>
-                      <td><span className="table-project-icon"><Code2 size={14} /></span><strong>{deployment.project}</strong></td>
-                      <td><span className="deployment-message">{deployment.message}</span>{deployment.commitSha && <small title={deployment.commitSha}>Commit {deployment.commitSha.slice(0, 7)}</small>}<small>{deployment.id}</small></td>
-                      <td><span className="branch-chip"><Github size={12} /> {deployment.branch}</span></td>
-                      <td><span className={`health-tag ${deployment.status === "Ready" ? "healthy" : deployment.status.toLowerCase()}`}><i />{deployment.status}</span></td>
-                      <td><span className="time-cell">{deployment.time}</span><small>{deployment.duration === "Cloudflare" ? "Provider" : `${deployment.duration} build`}</small></td>
-                      <td>
-                        <div className="table-actions">
-                          <button className="icon-button table-more" onClick={() => void openDeploymentLogs(deployment.id)} title="View deployment logs" aria-label={`View logs for ${deployment.id}`}>
-                            <TerminalSquare size={15} />
-                          </button>
-                          {deployment.canRollback && <button className="icon-button table-more" onClick={() => void rollbackSelectedDeployment(deployment.id)} disabled={rollbackDeploymentId !== null} title="Roll back production to this deployment" aria-label={`Roll back to ${deployment.id}`}>
-                            <RotateCcw size={15} className={rollbackDeploymentId === deployment.id ? "spin" : ""} />
-                          </button>}
-                          <a className="icon-button table-more" href={deployment.url} target="_blank" rel="noreferrer" aria-label={`Open ${deployment.id}`}><ExternalLink size={15} /></a>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {!historyLoading && !historyError && displayDeployments.length === 0 && <tr><td colSpan={6}><div className="empty-state">No Cloudflare deployments are available yet.</div></td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <footer className="footer"><span>DEPLO <span className="footer-muted">· Developer infrastructure, made simple.</span></span><span><span className="footer-live" /> Preview interface <span className="footer-separator">·</span> v0.1.0</span></footer>
-        </div>
-      </section>
-
-      {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}>
-        <div className="modal">
-          <div className="modal-head"><div><div className="eyebrow">NEW PROJECT</div><h2>Bring your code.</h2><p>Choose how you'd like to get started.</p></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Close"><X size={18} /></button></div>
-          {modal === "github" ? <div className="modal-options">
-            <button className="source-option" onClick={() => { setRepoInfo(null); setRepoError(""); setRepoUrl(""); setModal("repo"); }}><span className="source-icon github-source"><Github size={20} /></span><span><strong>Import Git Repository</strong><small>Connect GitHub and deploy from a branch.</small></span><ArrowUpRight size={16} /></button>
-            <button className="source-option" onClick={() => setModal("upload")}><span className="source-icon"><FileArchive size={20} /></span><span><strong>Upload a ZIP file</strong><small>Upload your project as a .zip archive.</small></span><ArrowUpRight size={16} /></button>
-            <button className="source-option" onClick={() => setModal("html")}><span className="source-icon"><FileCode2 size={20} /></span><span><strong>Deploy a static HTML file</strong><small>Start with an index.html file.</small></span><ArrowUpRight size={16} /></button>
-          </div> : modal === "repo" ? <div className="repo-connect">
-            <label className="repo-label" htmlFor="repo-url">GitHub repository URL (public or private)</label>
-            <div className="repo-input-row"><input id="repo-url" value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repository" /><button className="primary-button" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Checking…" : "Find repository"}</button></div>
-            <p className="repo-help">DEPLO can inspect public repositories and private repositories your signed-in GitHub account can access.</p>
-            {repoError && <div className="repo-error" role="alert">{repoError}</div>}
-            {repoInfo && <div className="repo-result">
-              <div className="repo-result-top"><span className="source-icon github-source"><Github size={19} /></span><div><strong>{repoInfo.fullName}</strong><small>{repoInfo.description || "No repository description"}</small></div></div>
-              <div className="repo-meta"><span>{repoInfo.language || "Unknown language"}</span><span>★ {repoInfo.stars.toLocaleString()} stars</span><span>{repoInfo.branches.length} branches listed</span></div>
-              <label className="repo-label" htmlFor="repo-branch">Deployment branch</label>
-              <select id="repo-branch" value={repoBranch} onChange={(event) => setRepoBranch(event.target.value)}>{repoInfo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.name === repoInfo.defaultBranch ? " (default)" : ""}</option>)}</select>
-              <button className="primary-button repo-confirm" onClick={() => void addRepositoryPreview()} disabled={projectSaving}>{projectSaving ? "Saving project…" : signedInUser ? "Save project to account" : "Add repository to dashboard"} <ArrowUpRight size={15} /></button>
-              <p className="repo-help">{signedInUser ? "This saves repository metadata to your account. Deployment and automatic redeploys are separate steps." : "This adds a temporary preview entry. Sign in to save projects to an account."}</p>
-            </div>}
-          </div> : <div className="upload-zone"><input type="file" disabled={projectSaving} accept={modal === "upload" ? ".zip,application/zip" : ".html,text/html"} onChange={(event) => void startUpload(event.target.files?.[0], modal === "upload" ? "zip" : "html")} /><div className="upload-icon"><UploadCloud size={24} /></div><strong>{fileName || (modal === "upload" ? "Choose a ZIP archive" : "Choose index.html")}</strong><span>{modal === "upload" ? "ZIP archive · maximum 25 MB" : "HTML document · maximum 2 MB"}</span>{uploadError && <p className="repo-error" role="alert">{uploadError}</p>}<button className="primary-button" disabled={projectSaving} onClick={() => document.querySelector<HTMLInputElement>(".upload-zone input")?.click()}>{projectSaving ? "Uploading and deploying…" : <><ArrowDownToLine size={16} /> Browse files</>}</button></div>}
-          <div className="modal-foot"><ShieldCheck size={14} /> {signedInUser ? "Uploads are saved to your account and published through your configured provider." : "Sign in with GitHub to save uploads and deploy them to your account."}</div>
-        </div>
-      </div>}
-      {logsDeploymentId && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLogsDeploymentId(null); }}>
-        <section className="modal logs-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-logs-title">
-          <div className="modal-head">
-            <div><div className="eyebrow">DEPLOYMENT OUTPUT</div><h2 id="deployment-logs-title">Deployment logs</h2><p>{logsDeploymentId}</p></div>
-            <button className="icon-button" onClick={() => setLogsDeploymentId(null)} aria-label="Close deployment logs"><X size={18} /></button>
-          </div>
-          {logsLoading ? <div className="empty-state">Loading deployment logs…</div>
-            : logsError ? <div className="repo-error" role="alert">{logsError}</div>
-            : deploymentLogs.length ? <div className="logs-output">{deploymentLogs.map((log, index) => <div className="log-line" key={logsDeploymentId + "-" + index}>
-              <time>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : "—"}</time><code>{log.line}</code>
-            </div>)}</div>
-            : <div className="empty-state">No log lines are available for this deployment.</div>}
-          <div className="modal-foot"><ShieldCheck size={14} /> Logs are fetched from Cloudflare and are visible only to this project's owner.</div>
-        </section>
-      </div>}
-    </main>
+      {history.logsDeploymentId && <DeploymentLogsDialog
+        logsDeploymentId={history.logsDeploymentId} setLogsDeploymentId={history.setLogsDeploymentId}
+        logsLoading={history.logsLoading} logsError={history.logsError} deploymentLogs={history.deploymentLogs}
+      />}
+    </div>
   );
-}
-
-function Stat({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: string; detail: string }) {
-  return <div className="stat-card"><div className="stat-top"><span className="stat-icon">{icon}</span><span className="stat-label">{label}</span><MoreHorizontal size={16} className="stat-more" /></div><div className="stat-value">{value}</div><div className="stat-detail">{detail}</div></div>;
-}
-function Detail({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return <div className="detail-row"><span className="detail-label">{icon}{label}</span><strong>{value}</strong></div>;
 }

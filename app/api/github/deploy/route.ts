@@ -7,7 +7,7 @@ import { isValidDeploymentSlug, isValidGitHubBranch } from "@/lib/github/deploy-
 import { isAuthorizedUploadRequest } from "@/lib/uploads/upload-auth";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesConfig } from "@/lib/deploy/cloudflare-pages";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
       return jsonError("This repository must contain a root index.html file. DEPLO currently publishes static sites only.", 422);
     }
 
+    await pruneUnpublishableFiles(projectRoot);
     const assets = await inspectStaticDirectory(projectRoot);
     const pagesBranch = "site-" + body.projectSlug;
     if (!isValidPagesBranch(pagesBranch)) return jsonError("Invalid deployment branch.", 400);

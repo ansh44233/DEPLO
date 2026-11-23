@@ -2,21 +2,35 @@ import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
+import { drainWorker, isAuthorizedWorkerRequest } from "@/lib/workers/background";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
 import { getGitHubArchiveHeaders } from "@/lib/github/webhook-archive";
+import { buildEnvForDelivery, previewBranchFor, previewUrlFor } from "@/lib/github/pull-request-preview";
+import { repositoryNameOf } from "@/lib/github/repository-name";
+import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
+import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
+import { dependencyCacheKey } from "@/lib/deploy/build-cache";
+import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
-type Delivery = { delivery_id: string; repository_full_name: string; branch: string; commit_sha: string; attempt_count: number };
+type Delivery = {
+  delivery_id: string;
+  repository_full_name: string;
+  branch: string;
+  commit_sha: string;
+  attempt_count: number;
+  /** Set for pull request deliveries: deploy a preview instead of production. */
+  pull_request_number?: number | null;
+};
 type Project = WebhookProjectCandidate;
 
 function error(message: string, status: number) {
@@ -26,12 +40,6 @@ function error(message: string, status: number) {
   });
 }
 
-function authorized(header: string | null, secret: string): boolean {
-  if (secret.length < 32 || !header?.startsWith("Bearer ")) return false;
-  const supplied = Buffer.from(header.slice(7));
-  const expected = Buffer.from(secret);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
 
 function databaseConfig() {
   const baseUrl = process.env.SUPABASE_URL?.trim() ?? "";
@@ -149,8 +157,18 @@ async function downloadArchive(url: string, destination: string, installationTok
 }
 
 export async function POST(request: NextRequest) {
-  const workerSecret = process.env.DEPLO_WEBHOOK_WORKER_SECRET ?? "";
-  if (!authorized(request.headers.get("authorization"), workerSecret)) return error("Authentication required.", 401);
+  if (!isAuthorizedWorkerRequest(request.headers.get("authorization"), [process.env.DEPLO_WEBHOOK_WORKER_SECRET])) return error("Authentication required.", 401);
+  return processNextDelivery();
+}
+
+// Vercel Cron sends GET with `Authorization: Bearer $CRON_SECRET`; drain the queue as a backstop.
+export async function GET(request: NextRequest) {
+  if (!isAuthorizedWorkerRequest(request.headers.get("authorization"), [process.env.CRON_SECRET, process.env.DEPLO_WEBHOOK_WORKER_SECRET])) return error("Authentication required.", 401);
+  const result = await drainWorker(processNextDelivery);
+  return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+}
+
+async function processNextDelivery(): Promise<NextResponse> {
   const config = databaseConfig();
   if (!config) return error("Webhook worker storage is not configured.", 503);
   const cloudflare = readCloudflarePagesCredentials();
@@ -181,6 +199,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ processed: true, deployed: 0, ignored: true }, { headers: { "Cache-Control": "no-store" } });
     }
 
+    const pullRequestNumber = typeof delivery.pull_request_number === "number" ? delivery.pull_request_number : null;
+    const previewUrls: string[] = [];
     let deployed = 0;
     for (const project of matches) {
       const installationId = await getInstallationId(config.baseUrl, config.serviceKey, project.owner_github_id);
@@ -189,7 +209,8 @@ export async function POST(request: NextRequest) {
         const appId = process.env.GITHUB_APP_ID?.trim() ?? "";
         const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim() ?? "";
         if (!appId || !privateKey) throw new Error("github_app_not_configured");
-        installationToken = await createInstallationAccessToken(installationId, appId, privateKey);
+        // Scope the token to this one repository: the sandbox runs the commit's own build scripts.
+        installationToken = await createInstallationAccessToken(installationId, appId, privateKey, fetch, [repositoryNameOf(delivery.repository_full_name)]);
       }
 
       const workRoot = await mkdtemp(join(tmpdir(), "deplo-webhook-"));
@@ -203,13 +224,47 @@ export async function POST(request: NextRequest) {
         await extractZipSafely(archivePath, extractedRoot);
         const roots = await readdir(extractedRoot, { withFileTypes: true });
         const siteRoot = roots.length === 1 && roots[0].isDirectory() ? join(extractedRoot, roots[0].name) : extractedRoot;
-        const index = await stat(join(siteRoot, "index.html")).catch(() => null);
+        const decision = await decideSite(siteRoot);
+        if (decision.kind === "unsupported") throw new Error("site_unsupported");
+        let publishRoot = siteRoot;
+        if (decision.kind === "build") {
+          if (!sandboxBuildsAvailable()) throw new Error("build_unavailable");
+          publishRoot = join(workRoot, "output");
+          try {
+            const buildEnv = await buildEnvForDelivery(pullRequestNumber, () => loadBuildEnv(project.owner_github_id, project.id));
+            const cacheKey = await dependencyCacheKey(siteRoot, decision.plan.packageManager, Object.keys(buildEnv));
+            // Pull request previews run unreviewed code, so they may read the cache but never replace it.
+            const cacheStore = cacheKey ? supabaseBuildCache(project.owner_github_id, project.id, { readOnly: pullRequestNumber !== null }) : null;
+            await buildInSandbox({
+              repositoryUrl: "https://github.com/" + delivery.repository_full_name + ".git",
+              revision: delivery.commit_sha,
+              accessToken: installationToken ?? null,
+              decision,
+              hasNpmLock: await hasPackageLock(siteRoot),
+              destination: publishRoot,
+              buildEnv,
+              ...(cacheKey && cacheStore ? { cache: { key: cacheKey, sourceRoot: siteRoot, store: cacheStore } } : {}),
+            });
+          } catch (error) {
+            if (error instanceof SandboxBuildError) throw new Error(error.code);
+            throw error;
+          }
+        }
+        const index = await stat(join(publishRoot, "index.html")).catch(() => null);
         if (!index?.isFile()) throw new Error("root_index_missing");
-        await inspectStaticDirectory(siteRoot);
+        await pruneUnpublishableFiles(publishRoot);
+        await inspectStaticDirectory(publishRoot);
 
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
-        await ensureCloudflarePagesProject(target.config, target.productionBranch);
-        const deployment = await deployStaticDirectory(siteRoot, target.productionBranch, target.config);
+        const { productionUrl } = await ensureCloudflarePagesProject(target.config, target.productionBranch);
+        if (pullRequestNumber !== null) {
+          // Previews go to their own branch alias and never replace the production URL.
+          await deployStaticDirectory(publishRoot, previewBranchFor(pullRequestNumber), target.config);
+          previewUrls.push(previewUrlFor(productionUrl, pullRequestNumber));
+          deployed += 1;
+          continue;
+        }
+        await deployStaticDirectory(publishRoot, target.productionBranch, target.config);
         const saved = await db<Project[]>(
           endpoint(config.baseUrl, "projects", {
             select: "id",
@@ -220,7 +275,7 @@ export async function POST(request: NextRequest) {
           {
             method: "PATCH",
             headers: { Prefer: "return=representation" },
-            body: JSON.stringify({ deployment_url: deployment.url, updated_at: new Date().toISOString() }),
+            body: JSON.stringify({ deployment_url: productionUrl, updated_at: new Date().toISOString() }),
           },
         );
         if (!saved.length) throw new Error("project_update_failed");
@@ -230,7 +285,11 @@ export async function POST(request: NextRequest) {
       }
     }
     await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "deployed");
-    return NextResponse.json({ processed: true, deployed }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({
+      processed: true,
+      deployed,
+      ...(pullRequestNumber !== null ? { pullRequest: pullRequestNumber, previewUrls } : {}),
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
     const code = cause instanceof Error && /^[a-z_]{3,64}$/.test(cause.message) ? cause.message : "deployment_failed";
     await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "failed", code).catch(() => undefined);

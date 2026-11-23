@@ -10,10 +10,20 @@ import { isValidGitHubBranch } from "@/lib/github/deploy-validation";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
-import { inspectStaticDirectory } from "@/lib/deploy/static-assets";
+import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
+import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
+import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
+import { dependencyCacheKey } from "@/lib/deploy/build-cache";
+import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
+import { chooseSandboxSource } from "@/lib/github/sandbox-source";
+import { resolveBranchHead } from "@/lib/github/branch-head";
+
+import { claimDeploySlot, rateLimitMessage } from "@/lib/db/supabase-deploy-rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Framework builds run in a sandbox and can take a few minutes.
+export const maxDuration = 300;
 
 const MAX_ARCHIVE_BYTES = 25 * 1024 * 1024;
 type RouteContext = { params: Promise<{ projectId: string }> };
@@ -87,6 +97,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("Project storage is temporarily unavailable.", 502);
   }
   if (!project) return jsonError("Project not found in your account.", 404);
+  const slot = await claimDeploySlot(user.id);
+  if (!slot.allowed) {
+    return NextResponse.json({ error: rateLimitMessage(slot) }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(slot.retryAfterSeconds) } });
+  }
   if (project.source_type !== "github" || !project.repository_url || !project.branch) {
     return jsonError("This project source cannot be deployed through GitHub import yet.", 422);
   }
@@ -111,10 +125,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const archivePath = join(workRoot, "repository.zip");
   const extractedRoot = join(workRoot, "extracted");
   try {
+    // Pin the deploy to one commit: the archive, the build and the result all refer to it.
+    const commitSha = await resolveBranchHead({ owner: repository.owner, repository: repository.repository, branch: project.branch, token: accessToken });
     const archiveUrl = "https://api.github.com/repos/" +
       encodeURIComponent(repository.owner) + "/" +
       encodeURIComponent(repository.repository) +
-      "/zipball/" + project.branch.split("/").map(encodeURIComponent).join("/");
+      "/zipball/" + (commitSha ?? project.branch.split("/").map(encodeURIComponent).join("/"));
     const archiveBytes = await downloadArchive(archiveUrl, archivePath, accessToken);
     await extractZipSafely(archivePath, extractedRoot);
 
@@ -122,21 +138,59 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const projectRoot = roots.length === 1 && roots[0].isDirectory()
       ? join(extractedRoot, roots[0].name)
       : extractedRoot;
-    const indexStat = await stat(join(projectRoot, "index.html")).catch(() => null);
-    if (!indexStat?.isFile()) {
-      return jsonError("This repository must contain a root index.html file. DEPLO currently publishes static sites only.", 422);
-    }
+    const decision = await decideSite(projectRoot);
+    if (decision.kind === "unsupported") return jsonError(decision.message, 422);
 
-    const assets = await inspectStaticDirectory(projectRoot);
-    await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
-    const deployment = await deployStaticDirectory(projectRoot, pagesTarget.productionBranch, pagesTarget.config);
+    let siteRoot = projectRoot;
+    let build: { framework: string; outputDirectory: string; log: string } | null = null;
+    if (decision.kind === "build") {
+      if (!sandboxBuildsAvailable()) {
+        return jsonError("This " + decision.plan.framework + " project needs a build. DEPLO runs builds in Vercel Sandbox, which is available when DEPLO itself is hosted on Vercel.", 422);
+      }
+      const outputRoot = join(workRoot, "output");
+      try {
+        const buildEnv = await loadBuildEnv(user.id, project.id);
+        const cacheKey = await dependencyCacheKey(projectRoot, decision.plan.packageManager, Object.keys(buildEnv));
+        const cacheStore = cacheKey ? supabaseBuildCache(user.id, project.id) : null;
+        // The user's own token stays on the server; the sandbox gets no token, a repository-scoped one, or a copy.
+        const source = await chooseSandboxSource({ owner: repository.owner, repository: repository.repository, ownerGithubId: user.id, userToken: accessToken });
+        const built = await buildInSandbox({
+          ...(source.kind === "clone"
+            ? { repositoryUrl: source.repositoryUrl, revision: commitSha ?? project.branch, accessToken: source.accessToken }
+            : { checkoutRoot: projectRoot, accessToken: null }),
+          decision,
+          hasNpmLock: await hasPackageLock(projectRoot),
+          destination: outputRoot,
+          buildEnv,
+          ...(cacheKey && cacheStore ? { cache: { key: cacheKey, sourceRoot: projectRoot, store: cacheStore } } : {}),
+        });
+        build = { framework: decision.plan.framework, outputDirectory: built.outputDirectory, log: built.log };
+      } catch (error) {
+        if (error instanceof SandboxBuildError) {
+          console.error("[deplo] Build failed:", error.code);
+          return NextResponse.json({ error: error.message, code: error.code, buildLog: error.log }, {
+            status: 422, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+          });
+        }
+        throw error;
+      }
+      siteRoot = outputRoot;
+    }
+    const indexStat = await stat(join(siteRoot, "index.html")).catch(() => null);
+    if (!indexStat?.isFile()) return jsonError("The site has no index.html to serve.", 422);
+
+    await pruneUnpublishableFiles(siteRoot);
+    const assets = await inspectStaticDirectory(siteRoot);
+    const { productionUrl } = await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
+    const deployment = await deployStaticDirectory(siteRoot, pagesTarget.productionBranch, pagesTarget.config);
     let savedProject;
     try {
-      savedProject = await updateOwnedProjectDeployment(user.id, project.id, deployment.url);
+      savedProject = await updateOwnedProjectDeployment(user.id, project.id, productionUrl);
     } catch {
       return NextResponse.json({
         status: "deployed",
-        url: deployment.url,
+        url: productionUrl,
+        deploymentUrl: deployment.url,
         warning: "The site was deployed, but DEPLO could not save the deployment URL to your project record.",
       }, { status: 201, headers: { "Cache-Control": "no-store" } });
     }
@@ -144,10 +198,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({
       status: "deployed",
       project: savedProject,
-      url: deployment.url,
+      url: productionUrl,
+      deploymentUrl: deployment.url,
       archiveBytes,
+      commitSha,
       fileCount: assets.fileCount,
       totalBytes: assets.totalBytes,
+      build,
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "GitHub project deployment failed.";

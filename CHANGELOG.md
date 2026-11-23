@@ -4,6 +4,51 @@ All notable changes to DEPLO are documented here.
 
 ## Unreleased
 
+### Security
+- Dashboard builds no longer put the signed-in user's GitHub OAuth token in the build sandbox. Public repositories are cloned without a token, private ones with a repository-scoped, read-only GitHub App installation token, and otherwise the downloaded archive is copied in (with executable bits kept).
+- Sign out ends the session on the server (migration `0016_revoked_sessions.sql`) and revokes the GitHub token at GitHub.
+- `DEPLO_ALLOWED_GITHUB_USERS` restricts sign-in to named GitHub accounts; removing an account ends its sessions.
+- Per-account deploy rate limit (`DEPLO_DEPLOYS_PER_HOUR`, default 30; migration `0017_deploy_rate_limits.sql`).
+- Middleware adds a Content Security Policy, HSTS, `X-Frame-Options`, referrer and permissions policies to every response, and refuses cross-site state-changing API requests.
+
+### Deployment
+- Dashboard deploys resolve the branch to one commit first, so the archive, the build and the result always match, and the response reports `commitSha`.
+
+### Performance
+- Dependency cache for framework builds: after a successful build DEPLO snapshots the Vercel Sandbox with only `node_modules` kept, and the next build whose dependencies and lockfiles are unchanged starts from that snapshot and skips the install step. Monorepos are not cached, pull request previews read the cache but never write it, and a build that fails on the cache is retried once from a clean install. Requires migration `0015_project_build_caches.sql`; set `DEPLO_DISABLE_BUILD_CACHE=1` to turn it off.
+- Cloudflare Pages uploads run four requests at a time over smaller buckets instead of one large request after another.
+- Optional Rust BLAKE3 hasher compiled to WebAssembly (`native/blake3-wasm`, built with `npm run build:wasm` into `lib/deploy/blake3.wasm`). It base64-encodes and hashes each asset in one pass; the JavaScript implementation remains the fallback and CI checks that both produce identical keys.
+
+### Added
+- Per-project environment variables: encrypted with AES-256-GCM (per-project derived key), managed in a new Environment tab (add, edit, reveal, paste a .env), optional at import time, and passed to install/build steps. Values are redacted from build logs. Requires migration `0013_project_environment_variables.sql`.
+- GitHub repository picker: signed-in users choose from their own repositories (including private ones) with search, instead of pasting a URL. "Deploy" imports and deploys in one step.
+- ZIP uploads: a single wrapping folder is detected automatically, `__MACOSX` metadata is dropped, source ZIPs of Vite/React/CRA/static Next.js projects are built in Vercel Sandbox, and files over the host's request limit upload directly to a private Supabase Storage bucket through a one-time signed URL (up to 25 MB).
+- New "ember" design: hairline tile grids, mono section labels, coral accent, ASCII-art hero and serif accent type.
+
+### Added
+- Framework builds: Vite, React, Create React App and static-export Next.js repositories are built in a Vercel Sandbox microVM (clone, install, build) and the output is published to Cloudflare Pages. Works for dashboard deploys and push-to-deploy.
+- Safe tar extraction for build output (GNU long names, path confinement, size and file-count limits; links skipped).
+- Dashboard: Ctrl/Cmd+K command menu, live thumbnails on project cards, deploy timer and status strip, build-log viewer with copy, Redeploy, and a dismissible open-source card.
+- New README with architecture diagram, feature overview and one-click Vercel deploy; the previous README moved to docs/REFERENCE.md.
+
+### Fixed
+- Vite projects (which have a root index.html) were published unbuilt; they are now built first.
+- Deploy errors returned as non-JSON (for example a gateway timeout) no longer show a parse error.
+- `.env.example` now lists every variable the app reads, grouped by purpose; the unused `NEXT_PUBLIC_APP_URL` was removed.
+
+### Added
+- Vercel hosting support: `vercel.json` with daily cron backstops for the webhook and build workers, and a step-by-step guide in `docs/VERCEL.md`.
+- Pure TypeScript BLAKE3 implementation for Cloudflare Pages asset keys, verified against published test vectors.
+- Worker GET handlers for Vercel Cron (`CRON_SECRET`) that drain each queue within a time budget.
+- Push webhooks and new build jobs now trigger their worker immediately after responding, using `after()`.
+- `/api/deploy/status` reports the host's upload limit; the dashboard rejects oversized uploads before sending and explains HTTP 413 responses.
+- Dashboard **Build jobs** panel for GitHub projects: queue a framework build for an exact commit (with a "Use latest" helper that reads the saved branch's head commit), see the runner and publication state of each job, cancel pending or processing jobs, and auto-refresh while builds are active.
+
+### Changed
+- Cloudflare Pages publishing now uses the Direct Upload API over HTTPS instead of spawning the Wrangler CLI. Identical files are uploaded once and assets Cloudflare already has are skipped. `wrangler` is no longer a dependency.
+- Legacy shared-token `/api/uploads*` endpoints return 501 on Vercel, where local disk does not persist between requests.
+- README now describes the connected build worker instead of stating that queued jobs never run.
+
 ### Added
 - Asynchronous isolated build-runner transport with stable idempotency keys, bounded status polling, and strict terminal artifact metadata validation.
 - Durable runner job ID persistence, atomic polling claims, retry scheduling, and a protected background queue processor endpoint.

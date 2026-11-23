@@ -50,12 +50,13 @@ test("reuses an existing Pages project only when its production branch matches",
 });
 
 test("creates a missing Pages project with the intended production branch", async () => {
-  const requests: { method: string; body?: string; authorization: string | null }[] = [];
+  const requests: { url: string; method: string; body?: string; authorization: string | null }[] = [];
   await ensureCloudflarePagesProject(
     { ...baseConfig, projectName: "deplo-abc123-portfolio" },
     "site-portfolio",
-    async (_input, init) => {
+    async (input, init) => {
       requests.push({
+        url: String(input),
         method: init?.method ?? "GET",
         body: typeof init?.body === "string" ? init.body : undefined,
         authorization: new Headers(init?.headers).get("authorization"),
@@ -71,6 +72,8 @@ test("creates a missing Pages project with the intended production branch", asyn
   assert.equal(requests.length, 2);
   assert.equal(requests[0]?.method, "GET");
   assert.equal(requests[1]?.method, "POST");
+  assert.match(requests[0]?.url ?? "", /\/pages\/projects\/deplo-abc123-portfolio$/);
+  assert.match(requests[1]?.url ?? "", /\/accounts\/[^/]+\/pages\/projects$/, "projects are created on the collection endpoint");
   assert.equal(requests[1]?.authorization, "Bearer secret-token");
   assert.deepEqual(JSON.parse(requests[1]?.body ?? "{}"), {
     name: "deplo-abc123-portfolio",
@@ -127,4 +130,40 @@ test("rejects invalid project names and production branches before network calls
     /Invalid Cloudflare Pages production branch/,
   );
   assert.equal(called, false);
+});
+
+test("surfaces Cloudflare's error code and a permission hint without the token", async () => {
+  const originalError = console.error;
+  console.error = () => undefined;
+  try {
+    await assert.rejects(
+      ensureCloudflarePagesProject({ ...baseConfig, projectName: "deplo-abc123-portfolio" }, "site-portfolio", async (_input, init) => {
+        if ((init?.method ?? "GET") === "GET") return new Response("{}", { status: 404 });
+        return new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }), { status: 403 });
+      }),
+      (error: Error) => {
+        assert.match(error.message, /could not be created \(HTTP 403, 10000 Authentication error/);
+        assert.match(error.message, /Cloudflare Pages: Edit/);
+        assert.equal(error.message.includes("secret-token"), false);
+        return true;
+      },
+    );
+  } finally { console.error = originalError; }
+});
+
+test("keeps generated project names within Cloudflare's 58-character limit", () => {
+  const target = getAccountPagesTarget({ accountId: "a", apiToken: "t" }, 42, "a".repeat(58));
+  assert.ok(target.config.projectName.length <= 58, target.config.projectName);
+  assert.match(target.config.projectName, /^[a-z0-9][a-z0-9-]*[a-z0-9]$/);
+});
+
+test("returns the project's stable pages.dev URL, preferring Cloudflare's subdomain", async () => {
+  const config = { ...baseConfig, projectName: "deplo-abc123-portfolio" };
+  const ok = (result: unknown) => new Response(JSON.stringify({ success: true, result }), { status: 200 });
+  const taken = await ensureCloudflarePagesProject(config, "site-portfolio", async () => ok({ name: "deplo-abc123-portfolio", production_branch: "site-portfolio", subdomain: "deplo-abc123-portfolio-9x2.pages.dev" }));
+  assert.equal(taken.productionUrl, "https://deplo-abc123-portfolio-9x2.pages.dev");
+  const plain = await ensureCloudflarePagesProject(config, "site-portfolio", async () => ok({ name: "deplo-abc123-portfolio", production_branch: "site-portfolio" }));
+  assert.equal(plain.productionUrl, "https://deplo-abc123-portfolio.pages.dev");
+  const weird = await ensureCloudflarePagesProject(config, "site-portfolio", async () => ok({ name: "deplo-abc123-portfolio", production_branch: "site-portfolio", subdomain: "evil.example.com" }));
+  assert.equal(weird.productionUrl, "https://deplo-abc123-portfolio.pages.dev");
 });

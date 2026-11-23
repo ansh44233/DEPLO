@@ -1,4 +1,4 @@
-import { lstat, readdir, stat } from "node:fs/promises";
+import { lstat, readdir, rm, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 
 export const MAX_PAGES_FILES = 2_000;
@@ -72,4 +72,32 @@ export async function inspectStaticDirectory(root: string): Promise<{ fileCount:
   await visit(absoluteRoot);
   if (fileCount === 0) throw new Error("The deployment directory is empty.");
   return { fileCount, totalBytes };
+}
+
+const SKIPPED_SEGMENTS = new Set(["node_modules", ".DS_Store", "Thumbs.db", "__MACOSX"]);
+
+/**
+ * Removes files that must never be published (secrets such as .env files and
+ * keys, VCS metadata, node_modules, symlinks) from a disposable working copy,
+ * so a repository that happens to contain them still deploys safely.
+ * Returns the relative paths that were removed.
+ */
+export async function pruneUnpublishableFiles(root: string): Promise<string[]> {
+  const absoluteRoot = resolve(root);
+  const removed: string[] = [];
+  async function visit(directory: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(directory, entry.name);
+      const relativePath = relative(absoluteRoot, fullPath).split(sep).join("/");
+      if (entry.isSymbolicLink() || SKIPPED_SEGMENTS.has(entry.name) || isForbiddenStaticPath(relativePath)) {
+        await rm(fullPath, { recursive: true, force: true });
+        removed.push(relativePath + (entry.isDirectory() ? "/" : ""));
+        continue;
+      }
+      if (entry.isDirectory()) await visit(fullPath);
+    }
+  }
+  await visit(absoluteRoot);
+  return removed;
 }

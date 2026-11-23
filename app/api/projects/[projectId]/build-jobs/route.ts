@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after as afterResponse, NextRequest, NextResponse } from "next/server";
+import { kickWorker } from "@/lib/workers/background";
 import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projects";
 import { BuildJobStoreError, createOwnedBuildJob, listOwnedBuildJobs, type BuildFramework, type BuildPackageManager } from "@/lib/db/supabase-build-jobs";
+
+import { claimDeploySlot, rateLimitMessage } from "@/lib/db/supabase-deploy-rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +33,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const project = await getOwnedProjectById(user.id, projectId);
     if (!project) return fail("Project not found in your account.", 404);
     const jobs = await listOwnedBuildJobs(user.id, projectId);
+    // While the owner is watching an active build, each refresh advances the worker by one step.
+    // This keeps builds moving on hosts whose cron runs rarely (for example Vercel Hobby).
+    if (jobs.some((job) => job.status === "pending" || job.status === "processing")) {
+      afterResponse(() => kickWorker("/api/internal/build-jobs/process", process.env.DEPLO_BUILD_WORKER_SECRET));
+    }
     return NextResponse.json({ jobs }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return storageError(error); }
 }
@@ -52,11 +60,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const project = await getOwnedProjectById(user.id, projectId);
     if (!project) return fail("Project not found in your account.", 404);
     if (project.source_type !== "github" || !project.repository_url || !project.branch) return fail("Build jobs currently require a saved GitHub project.", 422);
+    const slot = await claimDeploySlot(user.id);
+    if (!slot.allowed) {
+      return NextResponse.json({ error: rateLimitMessage(slot) }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(slot.retryAfterSeconds) } });
+    }
     const job = await createOwnedBuildJob({
       project_id: project.id, owner_github_id: user.id,
       source_commit_sha: input.sourceCommitSha, framework,
       package_manager: input.packageManager as BuildPackageManager, output_directory: outputDirectory,
     });
+    afterResponse(() => kickWorker("/api/internal/build-jobs/process", process.env.DEPLO_BUILD_WORKER_SECRET));
     return NextResponse.json({ job, execution: "not_started" }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) { return storageError(error); }
 }

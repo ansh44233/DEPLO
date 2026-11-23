@@ -1,285 +1,249 @@
-# DEPLO
+<div align="center">
 
-> Bring your code. We'll handle the rest.
+<img src="docs/assets/banner.svg" alt="DEPLO: bring your code, we'll handle the rest" width="100%" />
 
-DEPLO is a developer-focused deployment platform concept. It aims to make shipping websites and applications simple through GitHub imports, ZIP uploads, and standalone HTML uploads.
+<h3>Your own Vercel-style deploy platform. Open source, self-hostable, free to run.</h3>
 
-## Project status
+<p>
+  Import a GitHub repo, upload a ZIP, or drop in one HTML file.<br />
+  DEPLO builds it in an isolated microVM and ships it to Cloudflare's edge with a live URL.
+</p>
 
-Early development. GitHub sign-in, encrypted private-repository access, account-owned projects, static GitHub/ZIP/HTML publishing, provider deployment history, webhook retries, and GitHub App installation foundations are implemented. Cloudflare and Supabase credentials must still be configured and verified before live use.
+<p>
+  <a href="https://github.com/ansh44233/DEPLO/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/ansh44233/DEPLO?style=for-the-badge&logo=github&color=111111&labelColor=000000" /></a>
+  <a href="https://github.com/ansh44233/DEPLO/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/ansh44233/DEPLO?style=for-the-badge&logo=github&color=111111&labelColor=000000" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-111111?style=for-the-badge&labelColor=000000" /></a>
+  <a href="https://github.com/ansh44233/DEPLO/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ansh44233/DEPLO/ci.yml?branch=main&style=for-the-badge&label=CI&labelColor=000000" /></a>
+</p>
 
-## Current GitHub import preview
+<p>
+  <img alt="Next.js 15" src="https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=nextdotjs" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" />
+  <img alt="Cloudflare Pages" src="https://img.shields.io/badge/Cloudflare-Pages-F38020?style=flat-square&logo=cloudflare&logoColor=white" />
+  <img alt="Vercel Sandbox" src="https://img.shields.io/badge/Vercel-Sandbox-000000?style=flat-square&logo=vercel" />
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=flat-square&logo=supabase&logoColor=white" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-270%2B-2ECC71?style=flat-square" />
+</p>
 
-The dashboard can inspect public repositories and private repositories accessible to the signed-in GitHub account, retrieve repository metadata and branches, and save selected branches as account-owned projects.
+<p>
+  <a href="https://deplo-sand.vercel.app"><b>Live demo</b></a> ·
+  <a href="#-quick-start"><b>Quick start</b></a> ·
+  <a href="#-features"><b>Features</b></a> ·
+  <a href="#-architecture"><b>Architecture</b></a> ·
+  <a href="docs/VERCEL.md"><b>Self-host on Vercel</b></a> ·
+  <a href="docs/REFERENCE.md"><b>API reference</b></a>
+</p>
 
-This is an early integration milestone, not a production deployment pipeline:
-- Private repository inspection and static deployment are supported after GitHub sign-in, provided the user approves the requested `repo` OAuth scope.
-- When signed in and Supabase is configured, the selected repository is saved as account-owned project metadata. Without sign-in or database configuration, it remains a temporary browser preview.
-- Saving a repository does not immediately publish a live URL; use the project deployment action after saving.
-- Authenticated GitHub API requests are used when a signed-in token is available; otherwise public API limits apply.
+<a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fansh44233%2FDEPLO&project-name=deplo&env=DEPLO_BASE_URL,DEPLO_SESSION_SECRET,GITHUB_CLIENT_ID,GITHUB_CLIENT_SECRET,GITHUB_TOKEN_ENCRYPTION_KEY,SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_API_TOKEN,CRON_SECRET&envDescription=See%20docs%2FVERCEL.md%20for%20what%20each%20value%20is&envLink=https%3A%2F%2Fgithub.com%2Fansh44233%2FDEPLO%2Fblob%2Fmain%2Fdocs%2FVERCEL.md"><img src="https://vercel.com/button" alt="Deploy with Vercel" /></a>
 
-The inspection endpoint is `GET /api/github/repository?url=<public-repository-url>`.
+</div>
 
-## Server-side upload endpoint (early milestone)
+---
 
-An authenticated `POST /api/uploads` endpoint accepts multipart form uploads and stores validated files in a private local directory on a persistent Node.js host.
+## ⚡ The 30-second pitch
 
-- Set `DEPLO_UPLOAD_TOKEN` to a random secret of at least 32 characters.
-- Optionally set `DEPLO_UPLOAD_DIR` to a private persistent directory outside the public web root.
-- Send `Authorization: Bearer <token>` and multipart fields `kind` (`zip` or `html`) and `file`.
-- ZIP files are limited to 25 MB and checked for a ZIP signature; HTML files are limited to 2 MB and checked for an HTML document marker.
-- The endpoint returns a random upload ID; uploaded bytes are never served publicly by this route.
-
-Example:
-
-```bash
-curl -X POST http://localhost:3000/api/uploads \
-  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
-  -F "kind=html" \
-  -F "file=@index.html"
+```text
+  you                         DEPLO                                   the internet
+  ───                         ─────                                   ────────────
+  git push  ───────────────▶  webhook ─▶ clone ─▶ npm install ─▶ build
+  upload .zip ─────────────▶  safe extract ──────────────────────────┐
+  drop index.html ─────────▶  validate ──────────────────────────────┤
+                                                                     ▼
+                              hash + upload only changed files ─▶ Cloudflare Pages ─▶ https://your-site.pages.dev
 ```
 
-This local filesystem adapter requires persistent disk and a Node.js runtime. It is not suitable for ephemeral serverless filesystems. The upload token is a shared server-side gate, not per-user authentication; do not expose it in browser code. Project ownership, account authentication, quotas, cleanup, object storage, build execution, and deployments are not implemented yet.
+- **No servers to babysit.** DEPLO runs on Vercel's free tier. Sites are served by Cloudflare's global network.
+- **Real builds, safely.** Vite, React, Create React App and static Next.js are built inside a throwaway **Vercel Sandbox** Firecracker microVM. Your code never runs next to DEPLO's secrets.
+- **Every site is isolated.** Each project gets its own Cloudflare Pages project, so rollbacks, logs and domains never cross between users.
 
-## Upload preflight (early milestone)
+---
 
-The browser checks selected ZIP and standalone HTML files before upload, then signed-in users can publish them through the account-owned upload endpoint:
-- ZIP archives: `.zip` extension, ZIP signature, and a 25 MB maximum.
-- HTML documents: `.html`/`.htm` extension, complete-document marker, and a 2 MB maximum.
-- Invalid selections are rejected with an inline message.
+## ✨ Features
 
-Client-side checks improve feedback, but the server independently validates every upload. ZIP contents are stored privately and can be extracted through an authenticated endpoint with path, entry-count, expanded-size, compression-ratio, and symlink checks. Extraction output remains private; it is not built or deployed.
+<table>
+<tr>
+<td width="50%" valign="top">
 
-## ZIP extraction endpoint
+### 🚀 Ship
+- **GitHub import**: pick from your repos (private too), any branch
+- **Environment variables**: encrypted per project, paste a whole `.env`
+- **ZIP and HTML upload**: built sites or raw Vite/React projects, up to 25 MB
+- **Framework builds**: Vite · React · CRA · Next.js static export
+- **Push to deploy**: GitHub App webhook redeploys on every push
+- **Smart uploads**: BLAKE3 content hashing, unchanged files are skipped
 
-After uploading a ZIP and receiving its `uploadId`, extract it into a private per-upload directory:
+</td>
+<td width="50%" valign="top">
 
-```bash
-curl -X POST "http://localhost:3000/api/uploads/<upload-id>/extract" \\
-  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN"
-```
+### 🧭 Operate
+- **Live preview** of every deployed site, right on the dashboard
+- **Deployment history** with commit, branch and status
+- **Build logs** with errors highlighted, plus one-click copy
+- **Instant rollback** to any earlier production deploy
+- **Custom domains** with DNS records shown inline
 
-The endpoint rejects unsafe paths, duplicate paths, symbolic links and special files, oversized archives, and excessive compression ratios. It streams entries to disk and enforces the actual expanded-byte limit. Extracted files are not publicly served and are not executed.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
 
-## Deploy a GitHub repository
+### 🛡️ Secure by default
+- Signed, HttpOnly sessions; GitHub tokens encrypted with **AES-256-GCM**
+- Zip-slip, symlink, archive-bomb and secret-file checks on every upload
+- Builds in an isolated microVM with **no DEPLO credentials inside**
+- Webhooks verified with HMAC-SHA256; workers behind bearer secrets
+- Every database row scoped to its owner; RLS on, no public policies
 
-DEPLO's account-owned deployment flow can download a selected branch from a public or authorized private GitHub repository and publish it as a static Cloudflare Pages site. The legacy shared-token endpoint shown below remains public-repository-only.
+</td>
+<td width="50%" valign="top">
 
-```bash
-curl -X POST "http://localhost:3000/api/github/deploy" \
-  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"repositoryUrl":"https://github.com/owner/repository","branch":"main","projectSlug":"my-site"}'
-```
+### ⌨️ Feels fast
+- **`Ctrl K` command menu** for projects, tabs and actions
+- Vercel-style dark UI with Geist, built mobile-first
+- Toasts, skeleton loaders, keyboard focus and reduced-motion support
+- Live deploy timer and clear, actionable error messages
+- One honest status dot: is hosting connected or not
 
-The endpoint downloads the GitHub ZIP archive from GitHub's fixed API host, enforces a 25 MiB download limit, applies the same safe ZIP extraction policy as uploads, requires a root `index.html`, checks static asset limits and blocked secret/config paths, then deploys through the configured Cloudflare Pages project. It returns the deployment URL.
+</td>
+</tr>
+</table>
 
-**Current scope:** public and authenticated private repositories, with static HTML/CSS/JS only. Framework build commands and automatic redeployment on Git pushes are not yet supported. Account-owned deployments require a valid GitHub session and configured Supabase/Cloudflare credentials. DEPLO does not execute repository scripts.
+---
 
-## Private GitHub repository access
+## 🏁 Quick start
 
-GitHub sign-in requests the `read:user repo` OAuth scopes. After consent:
+### Option A: one click on Vercel (recommended)
 
-- DEPLO encrypts the GitHub access token using AES-256-GCM and stores only the encrypted value in a Secure/HttpOnly/SameSite cookie. The raw token is never returned to browser JavaScript or saved in the projects database.
-- Repository metadata and branch inspection use the signed-in token, allowing private repositories visible to that GitHub account to be imported.
-- Account-owned GitHub deployment uses the same server-decrypted token to download the saved repository branch archive.
-- Signing out clears both the DEPLO session and encrypted GitHub-token cookies. Both cookies expire after seven days; users must sign in again after expiry.
-- Configure `GITHUB_TOKEN_ENCRYPTION_KEY` as a separate random server-only secret of at least 32 characters. Do not use a `NEXT_PUBLIC_` variable.
+1. Press **Deploy with Vercel** above.
+2. Fill in the environment variables (what each one is: [docs/VERCEL.md](docs/VERCEL.md#3-environment-variables-production)).
+3. Run the SQL files in [`supabase/migrations/`](supabase/migrations) in order (0001 → 0018) on a new Supabase project.
+4. Open your deployment, sign in with GitHub, and ship something.
 
-**OAuth permission note:** GitHub's classic `repo` scope is broad and includes write access to private repositories. DEPLO currently uses it only for repository reads, but the granted token has broader permissions than the app needs. For a production launch, replace this with a GitHub App installation flow using read-only Contents and Metadata permissions. Users can revoke the OAuth app's access from GitHub Settings at any time.
-
-This milestone still deploys static sites with a root `index.html` only. It does not execute package scripts or framework builds.
-
-## Account-owned ZIP and HTML uploads
-
-Signed-in users can upload a ZIP archive or a standalone HTML document directly to an account-owned project:
-
-- The dashboard validates the selected file locally, creates or reuses a matching account project, and sends the file to `POST /api/projects/{projectId}/upload`.
-- The server verifies the signed GitHub session and confirms the project belongs to that account before accepting the upload.
-- ZIP archives are safely extracted into a temporary private directory. HTML uploads are written as the site's root `index.html`.
-- Both paths require a root `index.html`, enforce static asset limits and blocked-path checks, provision a dedicated Cloudflare Pages project for the account-owned project, deploy to its `site-{project-slug}` production branch, and save the resulting URL to the project record.
-- ZIP uploads are limited to 25 MiB; standalone HTML uploads are limited to 2 MiB. Temporary files are removed after the deployment attempt.
-
-This is a static publishing flow, not a build system. It does not run user-provided scripts or framework build commands. It requires the signed-in session, Supabase project storage, and Cloudflare Pages credentials to be configured on the server.
-
-
-## Deployment history, logs, and rollback
-
-- `GET /api/deploy/history?projectId={projectId}` returns the latest Cloudflare Pages deployments for the account-owned project's dedicated branch.
-- `GET /api/projects/{projectId}/deployments/{deploymentId}/logs` verifies project ownership and deployment-branch membership before retrieving provider logs. The response is no-store and capped to the latest 300 sanitized log lines.
-- Deployment history includes the source commit hash when Cloudflare provides a valid Git commit SHA, alongside the commit message, branch, status, timestamp, and deployment ID.
-- The dashboard provides a deployment-log viewer for each listed deployment.
-- `POST /api/projects/{projectId}/deployments/{deploymentId}/rollback` is owner-scoped and only permits successful **production** deployments belonging to the project.
-
-Cloudflare only rolls back successful production deployments. DEPLO now provisions a separate Pages project for each account-owned project and configures `site-{project-slug}` as that Pages project's production branch. This makes successful deployments eligible for the guarded rollback endpoint. Existing projects are provisioned on their next deployment; deployments from the former shared Pages project are not automatically migrated.
-
-## Account-owned GitHub project deployments
-
-When a user is signed in and Supabase plus Cloudflare Pages are configured, DEPLO can deploy a saved public GitHub project through its account-owned project record:
-
-- `POST /api/projects/{projectId}/deploy` verifies the signed GitHub session, looks up the project using both its UUID and the session's GitHub account ID, downloads the saved public repository branch, safely extracts it, checks static assets, and publishes it to the configured Cloudflare Pages project.
-- Each account-owned project gets a dedicated Cloudflare Pages project, with `site-{project-slug}` configured as its production branch. Project names are deterministically derived from the GitHub account ID and project slug to avoid cross-account name collisions.
-- After a successful publish, DEPLO saves the deployment URL and update timestamp to that same account-owned project record.
-- `GET /api/deploy/history?projectId={projectId}` verifies ownership before returning Cloudflare deployment history for that project's Pages branch.
-
-Account-owned deployment endpoints support public and authorized private GitHub repositories with a root `index.html` only. They do not execute repository scripts or build framework applications. Git push auto-deploys and deployment cancellation are not included. The shared upload-token endpoints remain separate legacy upload flows and are not substitutes for account-owned authorization.
-
-## Cloudflare Pages static deployment (early milestone)
-
-The authenticated `POST /api/uploads/{uploadId}/deploy` endpoint can publish an uploaded ZIP or standalone HTML file as a static site through Wrangler.
-
-Before using it:
-1. Create a Cloudflare API token with **Pages Write** permission.
-2. Configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` on the server. DEPLO automatically creates an isolated Pages project for each account-owned site and sets that site's dedicated branch as production.
-3. `CLOUDFLARE_PAGES_PROJECT_NAME` is optional and is used only by legacy shared-token deployment endpoints.
-4. Keep `DEPLO_UPLOAD_TOKEN` private; do not put it in browser code.
-
-Example request:
+### Option B: run it locally
 
 ```bash
-curl -X POST "http://localhost:3000/api/uploads/<upload-id>/deploy" \
-  -H "Authorization: Bearer $DEPLO_UPLOAD_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"projectSlug":"my-website"}'
-```
-
-DEPLO deploys static files only; it does not run package scripts or arbitrary build commands. It requires a root `index.html`, blocks common secret/config paths, rejects symlinks, and enforces file-count and size limits. A project slug is mapped to a production branch (for example, `site-my-website`) inside that project's isolated Cloudflare Pages project. The returned URL comes from Wrangler/Cloudflare.
-
-This integration requires a configured Cloudflare account and a pre-created Pages project. No live provider deployment has been performed from this repository yet. Per-user accounts, project ownership, usage billing, cleanup, build execution, GitHub private-repository OAuth, and custom domains remain future work.
-
-## Upload archive security
-
-The archive safety policy defines path traversal checks and conservative limits for archive entries, expanded size, and compression ratio. See [Upload Security](docs/UPLOAD_SECURITY.md). These checks are groundwork for the extraction pipeline. Build execution and deployment are not implemented yet.
-
-## Planned capabilities
-
-- GitHub repository import
-- ZIP project upload
-- Standalone `index.html` upload
-- Build and deployment history
-- Live build logs
-- Project settings and environment variables
-- Custom domains and HTTPS (later phase)
-
-## Local development
-
-Requirements: Node.js 22.12+ and npm.
-
-```bash
+git clone https://github.com/ansh44233/DEPLO.git
+cd DEPLO
 npm install
-npm run dev
+cp .env.example .env.local     # fill in your own values
+npm run dev                     # http://localhost:3000
 ```
 
-Open http://localhost:3000.
+> [!NOTE]
+> Plain HTML and ZIP sites deploy from anywhere. **Framework builds** (Vite, React, Next) use Vercel Sandbox, which works automatically when DEPLO runs on Vercel. Locally, set `VERCEL_TOKEN`, `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` to enable it.
 
-Run the automated test suite with:
+<details>
+<summary><b>🔑 Environment variables</b> (click to expand)</summary>
+
+| Variable | Required | What it's for |
+| --- | :---: | --- |
+| `DEPLO_BASE_URL` | ✅ | Public URL of your DEPLO, e.g. `https://deplo.example.com` |
+| `DEPLO_SESSION_SECRET` | ✅ | Signs session cookies. 32+ random characters |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | ✅ | GitHub OAuth App for "Sign in with GitHub" |
+| `GITHUB_TOKEN_ENCRYPTION_KEY` | ✅ | Encrypts the GitHub token cookie. 32+ characters |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Project storage. A `sb_secret_…` key works |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | ✅ | Where sites are hosted. Token needs **Pages: Edit** |
+| `CRON_SECRET` | ✅ on Vercel | Authenticates the daily backstop cron |
+| `DEPLO_GITHUB_WEBHOOK_SECRET` | push deploys | Must match the GitHub App webhook secret |
+| `DEPLO_WEBHOOK_WORKER_SECRET` | push deploys | Protects the webhook worker endpoint |
+| `GITHUB_APP_ID` / `GITHUB_APP_SLUG` / `GITHUB_APP_PRIVATE_KEY` | private repos | GitHub App for unattended private access |
+| `VERCEL_TOKEN` / `VERCEL_TEAM_ID` / `VERCEL_PROJECT_ID` | off-Vercel builds | Sandbox credentials when not running on Vercel |
+
+Generate secrets with `openssl rand -base64 48`. Never prefix any of them with `NEXT_PUBLIC_`.
+
+</details>
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    U([You]) -->|GitHub OAuth| D[DEPLO dashboard<br/>Next.js on Vercel]
+    GH[(GitHub)] -->|push webhook<br/>HMAC verified| W[Webhook worker]
+    D -->|deploy| P{Needs a build?}
+    W --> P
+    P -->|index.html only| C
+    P -->|Vite / React / Next export| S[[Vercel Sandbox<br/>Firecracker microVM]]
+    S -->|npm install + build<br/>output tar| C[Direct Upload<br/>BLAKE3 hashing]
+    C --> CF[(Cloudflare Pages<br/>one project per site)]
+    D <--> DB[(Supabase Postgres<br/>owner-scoped rows)]
+    CF --> I([https://your-site.pages.dev])
+```
+
+<details>
+<summary><b>📂 What's inside</b></summary>
+
+```text
+DEPLO/
+├── app/
+│   ├── page.tsx                     # the dashboard: shared state, project actions, layout
+│   └── api/
+│       ├── auth/                    # GitHub OAuth, session, GitHub App install
+│       ├── projects/[id]/           # deploy · upload · domains · builds · rollback · logs
+│       ├── webhooks/github/         # signed push receiver
+│       └── internal/                # queue workers (cron + after())
+├── components/dashboard/            # one component per screen, tab and dialog
+├── hooks/                           # one hook per feature (builds, domains, env vars, …)
+├── lib/
+│   ├── dashboard/               # dashboard types, formatting helpers, ⌘K menu logic
+│   ├── deploy/
+│   │   ├── sandbox-build.ts         # clone → install → build in Vercel Sandbox
+│   │   ├── cloudflare-pages.ts      # Direct Upload API, no CLI
+│   │   ├── blake3.ts                # pure-TS BLAKE3 for asset keys
+│   │   └── tar-extract.ts           # safe build-output extraction
+│   ├── auth/                        # sessions, token crypto, OAuth exchange
+│   ├── uploads/                     # zip-slip & archive-bomb defenses
+│   └── workers/                     # worker auth, self-kick, queue draining
+├── services/build-runner/           # optional self-hosted Firecracker runner
+├── supabase/migrations/             # 14 ordered SQL migrations
+├── tests/                           # 270+ node:test cases
+└── docs/                            # Vercel guide, API reference, security notes
+```
+
+</details>
+
+---
+
+## 🧪 Quality bar
 
 ```bash
-npm test
+npm test            # 270+ tests: crypto, uploads, BLAKE3 vectors, sandbox builds, workers
+npm run typecheck   # strict TypeScript
+npm run build       # production Next.js build
 ```
 
-The GitHub repository inspection endpoint accepts canonical GitHub repository URLs. Private repository access requires a signed-in session and the approved GitHub OAuth permission. Account-owned deployment requires Supabase and Cloudflare configuration.
+Every pull request runs migrations check, tests, typecheck and build in CI.
 
-## Documentation
+---
 
-- [Changelog](CHANGELOG.md)
-- [Contributing](CONTRIBUTING.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Security Policy](SECURITY.md)
+## 🗺️ Roadmap
 
-## License
+- [x] GitHub, ZIP and HTML deploys to Cloudflare Pages
+- [x] Push-to-deploy with a GitHub App
+- [x] Framework builds in Vercel Sandbox
+- [x] Rollbacks, logs, custom domains
+- [x] Command menu and live site previews
+- [x] Per-project environment variables for builds
+- [x] Pick repositories from your GitHub account
+- [x] Preview deployments for pull requests
+- [ ] Streaming build logs while the build runs
+- [ ] Team workspaces
 
-MIT. See [LICENSE](LICENSE).
+---
 
+## 🤝 Contributing
 
-## Deployment readiness
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), and report security problems privately as described in [SECURITY.md](SECURITY.md).
 
-The unauthenticated `GET /api/deploy/status` endpoint reports whether the server has the Cloudflare Pages settings and upload authentication required for deployment. It returns configuration booleans and missing setting names only; secret values are never returned. The response is marked `Cache-Control: no-store`.
+<div align="center">
 
-A `ready: true` response confirms that required environment variables are present and syntactically valid. It does not verify that the Cloudflare token is accepted by Cloudflare or that the Pages project exists.
+**If DEPLO saved you a deploy, leave a ⭐. It genuinely helps.**
 
+<a href="https://star-history.com/#ansh44233/DEPLO&Date">
+  <img src="https://api.star-history.com/svg?repos=ansh44233/DEPLO&type=Date&theme=dark" alt="Star history" width="600" />
+</a>
 
-## GitHub sign-in (identity foundation)
+<sub>MIT licensed · Built by <a href="https://github.com/ansh44233">@ansh44233</a> and contributors</sub>
 
-DEPLO includes a server-side GitHub OAuth sign-in flow:
-- OAuth state is generated per attempt, stored in a short-lived HttpOnly cookie, and checked before the callback is accepted.
-- The callback exchanges the authorization code server-side and retrieves the GitHub profile.
-- A seven-day HMAC-signed session cookie is HttpOnly, SameSite=Lax, and Secure in production.
-- Only the minimal GitHub profile is included in the session. The OAuth access token is not stored in the cookie or persisted by this flow.
-- `GET /api/auth/session` returns the current signed-in profile; `POST /api/auth/logout` clears the session after checking the request origin.
-
-Configure a GitHub OAuth App with callback URL `https://YOUR_DEPLO_HOST/api/auth/github/callback`, then set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `DEPLO_SESSION_SECRET` (a separate random secret of at least 32 characters), and `DEPLO_BASE_URL` on the server. Never expose these values through `NEXT_PUBLIC_` variables.
-
-**Important scope limit:** this is account identity only. It does not yet provide a database, per-user project ownership, private-repository access, encrypted OAuth-token storage, or account-scoped deployment authorization. Existing deployment endpoints still use the server-side shared upload token and must not be called directly from browser code. Configure a persistent database and ownership checks before treating DEPLO as a multi-user production service.
-
-
-## Account-owned project storage (API foundation)
-
-DEPLO can store project metadata in Supabase Postgres and scope project list/create operations to the GitHub account in the signed session:
-- `GET /api/projects` lists only rows whose `owner_github_id` matches the verified session.
-- `POST /api/projects` creates a project using the session's GitHub user ID; the owner ID is never accepted from the request body.
-- Project slugs are unique per account. GitHub source URLs and branch names are validated before storage.
-- The service-role key is used only on the server. The projects table has RLS enabled and no anonymous/authenticated policies.
-
-To configure it, create a Supabase project, run [`supabase/migrations/0001_account_projects.sql`](supabase/migrations/0001_account_projects.sql) in the SQL editor, and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server. Never expose the service-role key through a `NEXT_PUBLIC_` variable.
-
-This is the persistence/API foundation. When signed in, the dashboard loads account-owned projects and saves imported repository metadata through these endpoints. Deployment routes are still not scoped to project ownership; keep them behind the existing server-side token and do not expose that token to browsers.
-
-
-## Project and hosted-site deletion
-
-Deleting an account-owned project verifies the signed GitHub session and project ownership, derives the isolated Cloudflare Pages project name from that owner and project slug, and removes the hosted Pages project before deleting the DEPLO database record. This also removes the site's deployments and provider history. The dashboard displays a destructive confirmation before submitting the request.
-
-If Cloudflare deletion fails, DEPLO keeps the database project record so the owner can retry. If Cloudflare has already removed the site but the database deletion fails, retrying is safe because a missing Pages project is treated as already removed. Projects that were never deployed do not require a Cloudflare cleanup request.
-
-
-## GitHub push webhook inbox
-
-DEPLO exposes `POST /api/webhooks/github` for GitHub `push` events. Configure a repository webhook with:
-- Payload URL: `https://YOUR_DEPLO_HOST/api/webhooks/github`
-- Content type: `application/json`
-- Secret: the server-only `DEPLO_GITHUB_WEBHOOK_SECRET` value (at least 32 characters)
-- Event: **Just the push event**
-
-Apply `supabase/migrations/0002_github_webhook_deliveries.sql` before enabling the endpoint. The receiver validates GitHub's SHA-256 HMAC signature against the raw request body, bounds payload size, validates repository/branch/commit fields, ignores branch deletions, and stores each delivery ID under a unique constraint so GitHub retries are idempotent.
-
-Required server environment:
-- `DEPLO_GITHUB_WEBHOOK_SECRET`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-**Current scope:** this endpoint securely records push events in the private database inbox and returns `202 Accepted`. It does not yet build or deploy a site. A separately authenticated queue worker and project-to-repository matching are required for automatic redeployment; do not interpret `queued: true` as a completed deployment.
-
-
-## GitHub App installation foundation
-
-DEPLO includes an account-bound GitHub App installation flow and server-side installation-token minting foundation. Configure the app with Contents and Metadata read-only permissions, a setup URL at `/api/auth/github/install/callback`, and the push webhook URL at `/api/webhooks/github`. Apply migration `0004_github_app_installations.sql`. See [GitHub App setup](docs/github-app.md). Private-repository unattended webhook deployment is not active until the worker is integrated with installation tokens.
-
-
-## Project settings
-
-Signed-in project owners can rename a saved project through `PATCH /api/projects/{projectId}`. The endpoint verifies the signed GitHub session and scopes the database update by both project ID and owner ID. Names are limited to 60 characters. Renaming changes the dashboard display name only; the project slug, isolated Cloudflare Pages project, deployment URL, GitHub repository, and production branch remain unchanged.
-
-
-## Framework build detection (foundation)
-
-DEPLO can inspect an extracted project's `package.json`, lockfiles, and framework config text to prepare a build plan for Vite, React, Create React App, and Next.js. This is metadata inspection only:
-
-- DEPLO does not install dependencies, import project config files, or execute `npm`, `pnpm`, `yarn`, `bun`, or user-defined scripts.
-- Vite and common React layouts are mapped to likely static output directories (`dist` or `build`). Next.js is treated as a managed-runtime deployment unless a static export is detected in config text.
-- Every plan requires an isolated runner. The existing Cloudflare Pages publishing path remains static-only until a separate, resource-limited build runner is configured.
-- Framework detection is not a live framework deployment feature and does not make arbitrary repositories safe to build.
-
-A production runner must isolate each build from the DEPLO web process, enforce CPU, memory, time, disk, and concurrency limits, avoid injecting deployment credentials into build environments, and publish only validated immutable artifacts.
-
-
-## Durable framework build queue (foundation)
-
-Migration `0006_durable_build_jobs.sql` adds an account-owned queue for exact-commit build requests. Apply it after migrations `0001`–`0005`.
-
-- `POST /api/projects/{projectId}/build-jobs` queues a GitHub project's full 40-character source commit SHA and a supported static framework plan.
-- `GET /api/projects/{projectId}/build-jobs` lists only jobs owned by the signed-in GitHub account.
-- `DELETE /api/projects/{projectId}/build-jobs/{jobId}` cancels only pending or processing jobs belonging to that same account and project.
-- The database provides atomic `SKIP LOCKED` job claiming, stale-claim recovery, bounded retries, and sanitized error codes for a future worker.
-
-**Important:** this is queue storage and API groundwork only. No build worker is connected; queued jobs do not execute, install dependencies, or deploy. A future worker must use an isolated ephemeral runner with strict resource limits, no deployment secrets in the build environment, validated immutable artifacts, and cancellation/timeout enforcement. The API's submitted framework metadata is a request, not proof that the repository actually uses that framework; the worker must independently inspect the exact commit before building.
+</div>

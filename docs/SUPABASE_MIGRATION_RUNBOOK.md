@@ -23,6 +23,12 @@ repository inventory is:
 | 0010 | `0010_durable_supervisor_recovery.sql` | Durable supervisor recovery records and RPCs |
 | 0011 | `0011_recovery_inventory_nonces.sql` | Job-bound, one-time recovery inventory nonces |
 | 0012 | `0012_recovery_inventory_nonce_retention.sql` | Bounded nonce-retention cleanup RPC |
+| 0013 | `0013_project_environment_variables.sql` | Encrypted per-project build environment variables |
+| 0014 | `0014_pull_request_preview_deliveries.sql` | Pull request number on webhook deliveries, for preview deploys |
+| 0015 | `0015_project_build_caches.sql` | Dependency-cache snapshot per project, so unchanged dependencies are not reinstalled |
+| 0016 | `0016_revoked_sessions.sql` | Sign-ins ended with Sign out, so a copied session cookie stops working |
+| 0017 | `0017_deploy_rate_limits.sql` | Per-account deploy rate limit (`claim_deploy_slot`) |
+| 0018 | `0018_durable_supervisor_event_journal.sql` | Append-only supervisor event journal for the optional self-hosted Firecracker runner |
 
 Do not skip a migration or apply 0011/0012 ahead of 0001–0010. If the remote
 database has a different migration history, stop and reconcile it before
@@ -66,7 +72,7 @@ supabase migration list
 ```
 
 The final migration list should show the repository migrations through
-`0012_recovery_inventory_nonce_retention.sql` as applied to the intended
+`0018_durable_supervisor_event_journal.sql` as applied to the intended
 project. Save the command output and deployment timestamp in the team's
 operational record. Do not include secrets in that record.
 
