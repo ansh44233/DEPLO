@@ -61,15 +61,16 @@ export function EmberField() {
           const ring = Math.sin(r * 14 - angle * 2 - t * 0.9) * 0.5 + 0.5;
           const flicker = Math.sin(x * 12.9898 + y * 78.233 + t * 7) * 0.5 + 0.5;
           const band = Math.max(0, 1 - Math.abs(r - 0.55) * 2.1);
-          // Heat plume rising from below the mark.
-          const plume = Math.max(0, 1 - Math.abs(dx) * 3.2) * Math.max(0, (y - cy) / rows + 0.15) * (0.6 + 0.4 * Math.sin(t * 3 + y * 0.7 + x * 0.3));
-          let heat = ring * band * (0.55 + flicker * 0.45) + plume * 0.9;
+          let heat = ring * band * (0.55 + flicker * 0.45);
           if (r < 0.14) heat *= r / 0.14; // keep the mark readable
+          // Keep the headline and copy readable: the fire burns around them, not behind them.
+          const fy = y / rows;
+          if (Math.abs(dx) < 0.6 && fy > 0.28 && fy < 0.98) heat *= 0.2 + Math.min(0.8, Math.max(0, (Math.abs(dx) - 0.42) * 4.4));
           if (pointer.active) {
             const px = x * cell.w - pointer.x;
             const py = y * cell.h - pointer.y;
             const d = Math.sqrt(px * px + py * py);
-            heat += Math.max(0, 1 - d / 150) * 0.7;
+            heat += Math.max(0, 1 - d / 150) * 0.55;
           }
           heat = Math.min(1, heat);
           if (heat < 0.08) continue;
