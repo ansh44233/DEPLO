@@ -208,12 +208,15 @@ DEPLO/
 ## 🧪 Quality bar
 
 ```bash
-npm test            # 270+ tests: crypto, uploads, BLAKE3 vectors, sandbox builds, workers
+npm ci              # install exactly what package-lock.json pins
+npm run lint        # ESLint (next/core-web-vitals + next/typescript)
+npm test            # 370+ unit tests: auth, crypto, uploads, BLAKE3, sandbox builds, workers
 npm run typecheck   # strict TypeScript
 npm run build       # production Next.js build
+npm run test:e2e    # Playwright in Chromium, desktop and mobile, against the production build
 ```
 
-Every pull request runs migrations check, tests, typecheck and build in CI.
+Every pull request runs the migration check, `npm audit` for high-severity production advisories, lint, unit tests (including the committed Rust hasher against the JavaScript one), typecheck, build and the browser tests. Dependabot opens weekly update PRs.
 
 ---
 

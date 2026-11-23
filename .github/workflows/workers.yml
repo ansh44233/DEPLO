@@ -1,0 +1,74 @@
+name: Background workers and uptime
+
+# Vercel Hobby runs DEPLO's cron jobs once a day. This workflow drains the push-deploy
+# and build-job queues every 10 minutes and checks that DEPLO is up, so a webhook whose
+# instant processing failed is retried within minutes instead of the next day.
+#
+# Setup (repository Settings → Secrets and variables → Actions):
+#   variable DEPLO_URL           e.g. https://deplo-sand.vercel.app
+#   secret   DEPLO_CRON_SECRET   the same value as CRON_SECRET in Vercel
+# Until both are set, the job exits without doing anything.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: deplo-workers
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DEPLO_URL: ${{ vars.DEPLO_URL }}
+      CRON_SECRET: ${{ secrets.DEPLO_CRON_SECRET }}
+    steps:
+      - name: Check configuration
+        id: config
+        run: |
+          if [ -z "$DEPLO_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "DEPLO_URL or DEPLO_CRON_SECRET is not set; skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Uptime check
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          status=$(curl -s -o /tmp/status.json -w '%{http_code}' --max-time 20 "$DEPLO_URL/api/deploy/status")
+          echo "HTTP $status"; cat /tmp/status.json; echo
+          if [ "$status" != "200" ] || ! grep -q '"ready":true' /tmp/status.json; then
+            echo "::error::DEPLO is down or not ready (HTTP $status)"
+            exit 1
+          fi
+
+      - name: Drain push-deploy queue
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          curl -fsS --max-time 310 -H "Authorization: Bearer $CRON_SECRET" "$DEPLO_URL/api/internal/github-webhooks/process"; echo
+
+      - name: Drain build-job queue
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          curl -fsS --max-time 310 -H "Authorization: Bearer $CRON_SECRET" "$DEPLO_URL/api/internal/build-jobs/process"; echo
+
+      - name: Open an issue when DEPLO is down
+        if: failure() && steps.config.outputs.ready == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "DEPLO health check failing";
+            const open = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: "open", labels: "deplo-down" });
+            if (open.data.some((issue) => issue.title === title)) return;
+            await github.rest.issues.create({
+              owner: context.repo.owner, repo: context.repo.repo, title, labels: ["deplo-down"],
+              body: `The scheduled check failed: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nClose this issue once DEPLO is healthy again.`,
+            });

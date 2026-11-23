@@ -12,6 +12,7 @@ export type DeploymentReadiness = {
   legacySharedProjectConfigured: boolean;
   ready: boolean;
   missing: string[];
+  buildRunnerConfigured?: boolean;
   maxUploadBytes?: number | null;
 };
 

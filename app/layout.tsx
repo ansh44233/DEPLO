@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
@@ -13,9 +14,12 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#090a17", colorScheme: "dark" };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Reading the request makes every page render per request, which the CSP nonce needs:
+  // a prerendered page would carry scripts without the nonce and the browser would block them.
+  await headers();
   return (
     <html lang="en" className={sans.variable + " " + mono.variable + " " + serif.variable}>
       <body>{children}</body>

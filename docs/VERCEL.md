@@ -59,4 +59,11 @@ Do not set `DEPLO_UPLOAD_DIR` or `DEPLO_UPLOAD_TOKEN` on Vercel; the legacy endp
 
 ## Cron frequency
 
-`vercel.json` schedules each worker once a day, which every Vercel plan accepts. On a Pro plan you can raise the frequency (for example `*/5 * * * *` for the webhook worker) to retry failed deliveries sooner. Normal pushes and builds do not wait for cron; they are triggered immediately as described above.
+`vercel.json` schedules each worker once a day, which every Vercel plan accepts. Normal pushes and builds do not wait for cron; they are triggered immediately as described above.
+
+To retry a failed delivery within minutes on any plan, turn on the **Background workers and uptime** GitHub Actions workflow (`.github/workflows/workers.yml`). Every 10 minutes it checks that DEPLO is up, drains both queues, and opens a `deplo-down` issue if the check fails. In the repository's Settings → Secrets and variables → Actions, add:
+
+- variable `DEPLO_URL`, for example `https://deplo-sand.vercel.app`
+- secret `DEPLO_CRON_SECRET`, the same value as `CRON_SECRET` in Vercel
+
+On a Pro plan you can instead raise the Vercel cron frequency (for example `*/5 * * * *`).

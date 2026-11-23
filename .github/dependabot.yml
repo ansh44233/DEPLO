@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # npm dependencies arrive as reviewed pull requests instead of silently at build time.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      next-and-react:
+        patterns: ["next", "react", "react-dom", "eslint-config-next", "@types/react", "@types/react-dom"]
+  - package-ecosystem: cargo
+    directory: /native/blake3-wasm
+    schedule:
+      interval: monthly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

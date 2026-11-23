@@ -37,6 +37,10 @@ test("every response gets a strict security header set", () => {
   assert.match(csp, /object-src 'none'/);
   assert.match(csp, /connect-src 'self' https:\/\/abc\.supabase\.co(;|$)/);
   assert.doesNotMatch(csp, /unsafe-eval/);
+  assert.match(csp, /script-src 'self'(;|$)/, "no inline scripts without a nonce");
+  assert.doesNotMatch(csp, /script-src[^;]*unsafe-inline/);
+  const withNonce = securityHeaders({ https: true, nonce: "abc123" }, env)["Content-Security-Policy"];
+  assert.match(withNonce, /script-src 'self' 'nonce-abc123' 'strict-dynamic'/);
   assert.equal(headers["X-Frame-Options"], "DENY");
   assert.equal(headers["X-Content-Type-Options"], "nosniff");
   assert.match(headers["Strict-Transport-Security"], /max-age=63072000/);

@@ -1,3 +1,5 @@
+import { readBuildRunnerConfiguration } from "./build-runner-contract";
+
 export type DeploymentReadiness = {
   provider: "cloudflare-pages";
   configured: boolean;
@@ -5,6 +7,8 @@ export type DeploymentReadiness = {
   legacySharedProjectConfigured: boolean;
   ready: boolean;
   missing: string[];
+  /** A self-hosted build runner is configured, so the Builds tab can queue jobs. */
+  buildRunnerConfigured: boolean;
 };
 
 export function getDeploymentReadiness(
@@ -26,5 +30,6 @@ export function getDeploymentReadiness(
     legacySharedProjectConfigured,
     ready: configured,
     missing,
+    buildRunnerConfigured: readBuildRunnerConfiguration(env) !== null,
   };
 }

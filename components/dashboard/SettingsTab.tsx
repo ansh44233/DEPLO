@@ -9,7 +9,7 @@ export function SettingsTab({ signedInUser, selected, projectNameInput, setProje
                     <form className="card setting" onSubmit={(event) => { event.preventDefault(); void renameSelectedProject(); }}>
                       <div className="setting-body">
                         <h3>Project name</h3>
-                        <p className="muted">Shown on your dashboard. The URL and repository don't change.</p>
+                        <p className="muted">Shown on your dashboard. The URL and repository don&rsquo;t change.</p>
                         <input id="project-display-name" value={projectNameInput} onChange={(event) => setProjectNameInput(event.target.value)} maxLength={60} aria-label="Project name" />
                       </div>
                       <div className="setting-foot"><span className="muted">Up to 60 characters.</span><button className="btn btn-primary btn-sm" type="submit" disabled={projectRenaming || !projectNameInput.trim() || projectNameInput.trim() === selected.name}>{projectRenaming ? "Saving…" : "Save"}</button></div>
@@ -24,7 +24,7 @@ export function SettingsTab({ signedInUser, selected, projectNameInput, setProje
                     <div className="card setting setting-danger">
                       <div className="setting-body">
                         <h3>Delete project</h3>
-                        <p className="muted">Removes {selected.name}, its live site and every deployment. This can't be undone.</p>
+                        <p className="muted">Removes {selected.name}, its live site and every deployment. This can&rsquo;t be undone.</p>
                       </div>
                       <div className="setting-foot"><span /><button className="btn btn-danger btn-sm" onClick={() => void deleteSelectedProject()} disabled={projectDeleting}>{projectDeleting ? "Deleting…" : "Delete"}</button></div>
                     </div>

@@ -34,8 +34,8 @@ export function wasmHasher(env: Record<string, string | undefined> = process.env
 export function loadWasmHasher(path: string): WasmHasher | null {
   let exports: Exports;
   try {
-    const module = new WebAssembly.Module(readFileSync(path));
-    exports = new WebAssembly.Instance(module, {}).exports as unknown as Exports;
+    const compiled = new WebAssembly.Module(readFileSync(path));
+    exports = new WebAssembly.Instance(compiled, {}).exports as unknown as Exports;
     if (!(exports.memory instanceof WebAssembly.Memory) || typeof exports.alloc !== "function" || typeof exports.pages_asset_hash !== "function") return null;
   } catch {
     return null;

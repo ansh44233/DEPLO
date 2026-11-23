@@ -34,6 +34,8 @@ export function useAuth({ setNotice }: { setNotice: (message: string) => void })
     if (appResult === "signin_required") setNotice("Sign in with GitHub before installing the DEPLO GitHub App.");
     if (authResult || appResult) window.history.replaceState({}, "", window.location.pathname);
     return () => { cancelled = true; };
+    // Runs once on load: it reads the sign-in result from the URL and then clears it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

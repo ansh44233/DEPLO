@@ -40,7 +40,6 @@ function form(bytes: Uint8Array, metadata = { repositoryFullName: "octocat/hello
 }
 
 test("health endpoint reports runner readiness without enabling builds", async t => {
-  const archive = await makeZip();
   const { base } = await setup(t);
   const response = await fetch(base + "/healthz");
   assert.equal(response.status, 200);
@@ -114,7 +113,6 @@ test("source intake rejects malformed metadata and non-ZIP payloads", async t =>
 });
 
 test("build endpoint fails closed until an isolation backend is configured", async t => {
-  const archive = await makeZip();
   const { base } = await setup(t);
   const response = await fetch(base + "/v1/builds", {
     method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: "{}",
