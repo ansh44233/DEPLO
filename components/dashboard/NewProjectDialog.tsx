@@ -3,7 +3,7 @@ import type { DeploymentReadiness, SignedInUser, Project, Setter, Modal } from "
 import { timeAgo } from "@/lib/dashboard/format";
 import type { useRepoImport } from "@/hooks/use-repo-import";
 
-export function NewProjectDialog({ modal, setModal, setUploadError, setFileName, signedInUser, projectSaving, readiness, addRepositoryPreview, projects, startUpload, fileName, uploadError, repo }: { modal: NonNullable<Modal>; setModal: Setter<Modal>; setUploadError: Setter<string>; setFileName: Setter<string>; signedInUser: SignedInUser | null; projectSaving: boolean; readiness: DeploymentReadiness | null; addRepositoryPreview: (deployNow?: boolean) => Promise<void>; projects: Project[]; startUpload: (file: File | undefined, kind: "zip" | "html") => Promise<void>; fileName: string; uploadError: string; repo: ReturnType<typeof useRepoImport> }) {
+export function NewProjectDialog({ modal, setModal, setUploadError, setFileName, signedInUser, projectSaving, readiness, addRepositoryPreview, projects, startUpload, fileName, uploadError, repo, githubAccess = "oauth" }: { githubAccess?: "app" | "oauth"; modal: NonNullable<Modal>; setModal: Setter<Modal>; setUploadError: Setter<string>; setFileName: Setter<string>; signedInUser: SignedInUser | null; projectSaving: boolean; readiness: DeploymentReadiness | null; addRepositoryPreview: (deployNow?: boolean) => Promise<void>; projects: Project[]; startUpload: (file: File | undefined, kind: "zip" | "html") => Promise<void>; fileName: string; uploadError: string; repo: ReturnType<typeof useRepoImport> }) {
   const { repoUrl, setRepoUrl, repoInfo, setRepoInfo, repoBranch, setRepoBranch, repoLoading, repoError, setRepoError, myRepos, myReposLoading, myReposError, repoQuery, setRepoQuery, showUrlImport, setShowUrlImport, importEnvText, setImportEnvText, inspectRepository } = repo;
 
   return (
@@ -58,6 +58,7 @@ export function NewProjectDialog({ modal, setModal, setUploadError, setFileName,
                       {!myReposLoading && !myReposError && (myRepos ?? []).length > 0 && (myRepos ?? []).filter((repo) => repo.fullName.toLowerCase().includes(repoQuery.trim().toLowerCase())).length === 0 && <p className="muted palette-empty">No repository matches “{repoQuery}”.</p>}
                       {!myReposLoading && !myReposError && myRepos?.length === 0 && <p className="muted palette-empty">No repositories found on this GitHub account.</p>}
                     </div>
+                    {githubAccess === "app" && <p className="hint">DEPLO only sees repositories where its GitHub App is installed. <a href="/api/auth/github/install">Add repositories on GitHub</a></p>}
                     {repoLoading && <p className="hint"><Loader2 size={13} className="spin" /> Reading branches…</p>}
                     {repoError && <div className="banner banner-error" role="alert">{repoError}</div>}
                     <button className="link" onClick={() => setShowUrlImport(true)}>Import a public repository by URL instead</button>

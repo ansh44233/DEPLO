@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, safeEqual } from "@/lib/auth/session";
-import { encryptGitHubToken } from "@/lib/auth/github-token";
+import { encryptGitHubCredentials } from "@/lib/auth/github-token";
 import { exchangeGitHubCode, revokeGitHubToken } from "@/lib/auth/github-oauth";
 import { isAllowedGitHubUser } from "@/lib/auth/access-policy";
 
@@ -82,6 +82,7 @@ export async function GET(request: NextRequest) {
       return finish(request, "error");
     }
     const tokenData = { access_token: exchanged.accessToken };
+    const credentials = exchanged;
 
     const profileResponse = await fetch("https://api.github.com/user", {
       headers: {
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
       name: typeof profile.name === "string" ? profile.name.slice(0, 100) : null,
       avatarUrl,
     }, sessionSecret);
-    const encryptedToken = encryptGitHubToken(tokenData.access_token, tokenEncryptionKey);
+    const encryptedToken = encryptGitHubCredentials(credentials, tokenEncryptionKey);
     return finish(request, "success", token, encryptedToken);
   } catch {
     console.error("[deplo] GitHub sign-in failed: unexpected error");

@@ -26,6 +26,23 @@ Set these server-only variables:
 
 Apply migrations `0004_github_app_installations.sql` and `0005_github_app_installation_lifecycle.sql`. DEPLO removes deleted installation records and disables deployments while an installation is suspended; unsuspending restores the connection.
 
+## Sign in with the GitHub App
+
+The same GitHub App can handle "Sign in with GitHub", which gives DEPLO far less access than a classic OAuth App:
+
+| | GitHub App sign-in | Classic OAuth App |
+| --- | --- | --- |
+| What the user's token can do | Only the App's permissions (Contents and Metadata: read) | `repo` scope: read **and write** every repository the user can reach |
+| Which repositories | Only those where the App is installed | All of them |
+| Token lifetime | 8 hours, refreshed automatically | Until revoked |
+
+To use it:
+1. In the App's settings, set **Callback URL** to `https://YOUR_DEPLO_HOST/api/auth/github/callback` and keep **Expire user authorization tokens** turned on.
+2. Generate a **client secret** for the App.
+3. Set `GITHUB_CLIENT_ID` to the App's client ID (it starts with `Iv`) and `GITHUB_CLIENT_SECRET` to that secret. DEPLO detects the App from the client ID and stops asking for the `repo` scope. `DEPLO_GITHUB_SIGN_IN=app` forces it.
+
+Users who signed in with the old OAuth App keep working until their session ends (at most 7 days); the next sign-in uses the App. The repository picker then lists only repositories where the App is installed, and links to GitHub to add more. Access tokens are refreshed in middleware a few minutes before they expire; if the refresh token has expired too, the user is asked to sign in again.
+
 ## Pull request previews
 
 When a pull request is opened, reopened or gets new commits, DEPLO builds its head commit for every project that deploys the PR's base branch. Each preview is published to the Cloudflare Pages branch `pr-<number>` and served at `https://pr-<number>.<project>.pages.dev`; the production URL never changes. Previews appear in the project's deployment history as **preview** deployments. Pull requests from forks are ignored, because their code is untrusted and would otherwise be fetched with the installation token. Apply migration `0014_pull_request_preview_deliveries.sql` before subscribing to **Pull request** events.

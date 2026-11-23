@@ -6,15 +6,21 @@ export function useAuth({ setNotice }: { setNotice: (message: string) => void })
   const [githubAppStatus, setGithubAppStatus] = useState<GitHubAppStatus | null>(null);
   const [githubAppStatusLoading, setGithubAppStatusLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  /** "app": sign-in through the GitHub App, which only sees repositories where it is installed. */
+  const [githubAccess, setGithubAccess] = useState<"app" | "oauth">("oauth");
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/session", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not check sign-in status.");
-        return response.json() as Promise<{ authenticated: boolean; user: SignedInUser | null }>;
+        return response.json() as Promise<{ authenticated: boolean; user: SignedInUser | null; githubAccess?: "app" | "oauth" }>;
       })
-      .then((data) => { if (!cancelled) setSignedInUser(data.authenticated ? data.user : null); })
+      .then((data) => {
+        if (cancelled) return;
+        setSignedInUser(data.authenticated ? data.user : null);
+        setGithubAccess(data.githubAccess === "app" ? "app" : "oauth");
+      })
       .catch(() => { if (!cancelled) setSignedInUser(null); })
       .finally(() => { if (!cancelled) setAuthLoading(false); });
     const authResult = new URLSearchParams(window.location.search).get("auth");
@@ -57,5 +63,6 @@ export function useAuth({ setNotice }: { setNotice: (message: string) => void })
     setGithubAppStatus,
     githubAppStatusLoading,
     authLoading,
+    githubAccess,
   };
 }
