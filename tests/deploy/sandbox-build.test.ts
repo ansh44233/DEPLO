@@ -157,3 +157,40 @@ test("explains when the sandbox cannot start", async () => {
     (error: unknown) => error instanceof SandboxBuildError && error.code === "sandbox_unavailable",
   );
 });
+
+test("passes project environment variables to install and build, and hides their values in the log", async () => {
+  const tarball = await makeTar(async (dir) => { await writeFile(join(dir, "index.html"), "ok"); });
+  const fake = fakeSandbox(tarball, { output: "using VITE_API_KEY=sk_live_secret_value" });
+  const dest = await tempDir("deplo-build-env-");
+  try {
+    const result = await buildInSandbox({ repositoryUrl: "https://github.com/o/r.git", revision: "main", accessToken: null, decision: viteDecision, hasNpmLock: true, destination: dest, factory: fake.factory, buildEnv: { VITE_API_KEY: "sk_live_secret_value", CI: "0" } });
+    assert.equal(fake.calls[0].env?.VITE_API_KEY, "sk_live_secret_value");
+    assert.equal(fake.calls[1].env?.VITE_API_KEY, "sk_live_secret_value");
+    assert.equal(fake.calls[1].env?.CI, "1", "DEPLO keeps CI=1 for non-interactive builds");
+    assert.equal(result.log.includes("sk_live_secret_value"), false);
+    assert.match(result.log, /VITE_API_KEY=\*\*\*/);
+  } finally { await rm(dest, { recursive: true, force: true }); }
+});
+
+test("builds uploaded files (no git) by copying the source but not node_modules or old builds", async () => {
+  const src = await tempDir("deplo-upload-src-");
+  await writeFile(join(src, "package.json"), "{}");
+  await writeFile(join(src, "index.html"), "<div id=root>");
+  await mkdir(join(src, "src")); await writeFile(join(src, "src", "main.tsx"), "x");
+  await mkdir(join(src, "node_modules", "react"), { recursive: true }); await writeFile(join(src, "node_modules", "react", "i.js"), "x");
+  await mkdir(join(src, "dist")); await writeFile(join(src, "dist", "old.js"), "x");
+  const tarball = await makeTar(async (dir) => { await writeFile(join(dir, "index.html"), "built"); });
+  const written: string[] = [];
+  const fake = fakeSandbox(tarball);
+  const factory: SandboxFactory = async (options) => {
+    const instance = await fake.factory(options);
+    return { ...instance, async writeFiles(files) { written.push(...files.map((file) => file.path)); } };
+  };
+  const dest = await tempDir("deplo-upload-out-");
+  try {
+    await buildInSandbox({ filesRoot: src, accessToken: null, decision: viteDecision, hasNpmLock: false, destination: dest, factory });
+    assert.equal(fake.created?.source, undefined, "no git source for uploads");
+    assert.deepEqual(written.sort(), ["index.html", "package.json", "src/main.tsx"]);
+    assert.equal(await readFile(join(dest, "index.html"), "utf8"), "built");
+  } finally { await rm(dest, { recursive: true, force: true }); }
+});

@@ -10,6 +10,7 @@ import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deplo
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
 import { getGitHubArchiveHeaders } from "@/lib/github/webhook-archive";
+import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 
 export const runtime = "nodejs";
@@ -222,6 +223,7 @@ async function processNextDelivery(): Promise<NextResponse> {
               decision,
               hasNpmLock: await hasPackageLock(siteRoot),
               destination: publishRoot,
+              buildEnv: await loadBuildEnv(project.owner_github_id, project.id),
             });
           } catch (error) {
             if (error instanceof SandboxBuildError) throw new Error(error.code);
