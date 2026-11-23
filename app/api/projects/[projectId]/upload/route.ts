@@ -12,6 +12,8 @@ import { resolveSiteRoot } from "@/lib/uploads/site-root";
 import { isOwnStagedPath, StagedUploadError, takeStagedUpload } from "@/lib/uploads/staged-upload";
 import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
+import { dependencyCacheKey } from "@/lib/deploy/build-cache";
+import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
 import { hasHtmlDocument, hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "@/lib/uploads/validate-upload";
 
 export const runtime = "nodejs";
@@ -123,13 +125,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (!sandboxBuildsAvailable()) return jsonError("This ZIP contains a " + decision.plan.framework + " project that needs a build, and builds are not available on this server. Upload the built output folder instead.", 422);
       const builtRoot = join(workRoot, "built");
       try {
+        const buildEnv = await loadBuildEnv(user.id, project.id);
+        const cacheKey = await dependencyCacheKey(siteRoot, decision.plan.packageManager, Object.keys(buildEnv));
+        const cacheStore = cacheKey ? supabaseBuildCache(user.id, project.id) : null;
         const built = await buildInSandbox({
           filesRoot: siteRoot,
           accessToken: null,
           decision,
           hasNpmLock: await hasPackageLock(siteRoot),
           destination: builtRoot,
-          buildEnv: await loadBuildEnv(user.id, project.id),
+          buildEnv,
+          ...(cacheKey && cacheStore ? { cache: { key: cacheKey, sourceRoot: siteRoot, store: cacheStore } } : {}),
         });
         build = { framework: decision.plan.framework, log: built.log };
       } catch (error) {
