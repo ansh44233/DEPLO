@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "npm run check:migrations && tsx --test tests/api/*.test.ts tests/auth/*.test.ts tests/db/*.test.ts tests/github/*.test.ts tests/uploads/*.test.ts tests/deploy/*.test.ts tests/build-runner/*.test.ts tests/workers/*.test.ts",
+    "test": "npm run check:migrations && tsx --test tests/api/*.test.ts tests/auth/*.test.ts tests/dashboard/*.test.ts tests/db/*.test.ts tests/github/*.test.ts tests/uploads/*.test.ts tests/deploy/*.test.ts tests/build-runner/*.test.ts tests/workers/*.test.ts",
     "check:migrations": "tsx scripts/check-migrations.ts",
     "build:wasm": "sh native/blake3-wasm/build.sh"
   },

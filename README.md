@@ -177,13 +177,16 @@ flowchart LR
 ```text
 DEPLO/
 ├── app/
-│   ├── page.tsx                     # the dashboard (projects, tabs, ⌘K, dialogs)
+│   ├── page.tsx                     # the dashboard: shared state, project actions, layout
 │   └── api/
 │       ├── auth/                    # GitHub OAuth, session, GitHub App install
 │       ├── projects/[id]/           # deploy · upload · domains · builds · rollback · logs
 │       ├── webhooks/github/         # signed push receiver
 │       └── internal/                # queue workers (cron + after())
+├── components/dashboard/            # one component per screen, tab and dialog
+├── hooks/                           # one hook per feature (builds, domains, env vars, …)
 ├── lib/
+│   ├── dashboard/               # dashboard types, formatting helpers, ⌘K menu logic
 │   ├── deploy/
 │   │   ├── sandbox-build.ts         # clone → install → build in Vercel Sandbox
 │   │   ├── cloudflare-pages.ts      # Direct Upload API, no CLI
@@ -193,7 +196,7 @@ DEPLO/
 │   ├── uploads/                     # zip-slip & archive-bomb defenses
 │   └── workers/                     # worker auth, self-kick, queue draining
 ├── services/build-runner/           # optional self-hosted Firecracker runner
-├── supabase/migrations/             # 13 ordered SQL migrations
+├── supabase/migrations/             # 14 ordered SQL migrations
 ├── tests/                           # 270+ node:test cases
 └── docs/                            # Vercel guide, API reference, security notes
 ```
