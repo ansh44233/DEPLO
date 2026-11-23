@@ -94,3 +94,15 @@ export function previewUrlFor(productionUrl: string, pullRequestNumber: number):
   if (!match) throw new Error("Invalid Cloudflare Pages production URL.");
   return "https://" + previewBranchFor(pullRequestNumber) + "." + match[1];
 }
+
+/**
+ * Build-time environment for a delivery. Pull request previews run code from any branch,
+ * so they never receive the project's saved variables (which may be secrets): a build
+ * script could print or send them. Only production (push) builds load them.
+ */
+export async function buildEnvForDelivery(
+  pullRequestNumber: number | null,
+  loadProjectEnv: () => Promise<Record<string, string>>,
+): Promise<Record<string, string>> {
+  return pullRequestNumber === null ? loadProjectEnv() : {};
+}

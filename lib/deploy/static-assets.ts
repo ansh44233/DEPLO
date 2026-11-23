@@ -74,7 +74,7 @@ export async function inspectStaticDirectory(root: string): Promise<{ fileCount:
   return { fileCount, totalBytes };
 }
 
-const SKIPPED_SEGMENTS = new Set(["node_modules", ".DS_Store", "Thumbs.db"]);
+const SKIPPED_SEGMENTS = new Set(["node_modules", ".DS_Store", "Thumbs.db", "__MACOSX"]);
 
 /**
  * Removes files that must never be published (secrets such as .env files and

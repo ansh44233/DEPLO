@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizePullRequestEvent } from "../../lib/github/pull-request-preview";
+import { buildEnvForDelivery, normalizePullRequestEvent } from "../../lib/github/pull-request-preview";
 
 // Attack-oriented cases for the pull request parser. The webhook is HMAC-signed by GitHub,
 // but the parser is the second line of defence: it must never approve a build it cannot prove safe.
@@ -72,4 +72,14 @@ test("survives hostile JSON shapes without throwing or polluting prototypes", ()
   ];
   for (const payload of hostile) assert.deepEqual(normalizePullRequestEvent(payload), { kind: "invalid" });
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
+});
+
+test("pull request previews never receive the project's saved build variables", async () => {
+  let loads = 0;
+  const secrets = { API_KEY: "super-secret" };
+  const load = async () => { loads += 1; return secrets; };
+  assert.deepEqual(await buildEnvForDelivery(42, load), {});
+  assert.equal(loads, 0, "the secrets are not even read for a preview");
+  assert.deepEqual(await buildEnvForDelivery(null, load), secrets);
+  assert.equal(loads, 1);
 });

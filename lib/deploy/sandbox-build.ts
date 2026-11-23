@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { detectFrameworkBuildPlan, type FrameworkBuildPlan } from "./framework-detection";
 import { extractTar } from "./tar-extract";
@@ -8,10 +8,11 @@ export type SandboxCommandResult = { exitCode: number; output(stream?: "both" | 
 export type SandboxInstance = {
   runCommand(params: { cmd: string; args?: string[]; env?: Record<string, string>; timeoutMs?: number }): Promise<SandboxCommandResult>;
   readFileToBuffer(params: { path: string }): Promise<Buffer | null>;
+  writeFiles?(files: { path: string; content: Buffer }[]): Promise<unknown>;
   stop(): Promise<unknown>;
 };
 export type SandboxCreateOptions = {
-  source: { type: "git"; url: string; depth: number; revision: string; username?: string; password?: string };
+  source?: { type: "git"; url: string; depth: number; revision: string; username?: string; password?: string };
   resources: { vcpus: number };
   timeout: number;
   persistent: boolean;
@@ -98,8 +99,10 @@ function tail(text: string, lines = 120): string {
   return parts.slice(-lines).join("\n");
 }
 
-function redact(text: string, secret: string | null): string {
-  return secret ? text.split(secret).join("***") : text;
+function redact(text: string, secret: string | null, extra: string[] = []): string {
+  let result = secret ? text.split(secret).join("***") : text;
+  for (const value of extra) if (value.length >= 4) result = result.split(value).join("***");
+  return result;
 }
 
 /**
@@ -109,28 +112,37 @@ function redact(text: string, secret: string | null): string {
  * used only as the clone credential for the user's own repository.
  */
 export async function buildInSandbox(input: {
-  repositoryUrl: string;
-  revision: string;
+  /** Git source. Omit both and pass filesRoot to build uploaded files instead. */
+  repositoryUrl?: string;
+  revision?: string;
+  /** Local directory whose files are copied into the sandbox (for ZIP uploads). */
+  filesRoot?: string;
   accessToken: string | null;
   decision: Extract<SiteDecision, { kind: "build" }>;
   hasNpmLock: boolean;
   destination: string;
   factory?: SandboxFactory;
   budgetMs?: number;
+  /** The project's environment variables, available to install and build commands. */
+  buildEnv?: Record<string, string>;
 }): Promise<{ outputDirectory: string; fileCount: number; totalBytes: number; log: string }> {
   const started = Date.now();
   const budget = input.budgetMs ?? 250_000;
   const remaining = () => Math.max(10_000, budget - (Date.now() - started));
   const log: string[] = [];
   const factory = input.factory ?? defaultFactory;
+  const buildEnv = input.buildEnv ?? {};
+  const envValues = Object.values(buildEnv);
 
   let sandbox: SandboxInstance;
   try {
     sandbox = await factory({
-      source: {
-        type: "git", url: input.repositoryUrl, depth: 1, revision: input.revision,
-        ...(input.accessToken ? { username: "x-access-token", password: input.accessToken } : {}),
-      },
+      ...(input.repositoryUrl && input.revision ? {
+        source: {
+          type: "git" as const, url: input.repositoryUrl, depth: 1, revision: input.revision,
+          ...(input.accessToken ? { username: "x-access-token", password: input.accessToken } : {}),
+        },
+      } : {}),
       resources: { vcpus: 2 },
       timeout: 10 * 60 * 1000,
       persistent: false,
@@ -142,13 +154,19 @@ export async function buildInSandbox(input: {
 
   const run = async (label: string, script: string, timeoutMs: number, env: Record<string, string> = {}) => {
     log.push("$ " + label);
-    const result = await sandbox.runCommand({ cmd: "bash", args: ["-lc", script], env: { CI: "1", ...env }, timeoutMs: Math.min(timeoutMs, remaining()) });
+    const result = await sandbox.runCommand({ cmd: "bash", args: ["-lc", script], env: { ...buildEnv, CI: "1", ...env }, timeoutMs: Math.min(timeoutMs, remaining()) });
     const output = await result.output("both").catch(() => "");
-    log.push(tail(redact(output, input.accessToken)));
+    log.push(tail(redact(output, input.accessToken, envValues)));
     return { exitCode: result.exitCode, output };
   };
 
   try {
+    if (input.filesRoot) {
+      if (!sandbox.writeFiles) throw new SandboxBuildError("This sandbox cannot receive uploaded files.", "", "sandbox_unavailable");
+      const files = await collectSourceFiles(input.filesRoot);
+      for (let index = 0; index < files.length; index += 200) await sandbox.writeFiles(files.slice(index, index + 200));
+      log.push("Copied " + files.length + " uploaded files into the sandbox.");
+    }
     const { plan } = input.decision;
     const install = await run(installCommand(plan.packageManager, input.hasNpmLock), installCommand(plan.packageManager, input.hasNpmLock), 150_000);
     if (install.exitCode !== 0) throw new SandboxBuildError("Installing dependencies failed. See the build log.", log.join("\n"), "install_failed");
@@ -179,6 +197,24 @@ export async function buildInSandbox(input: {
   } finally {
     await sandbox.stop().catch(() => undefined);
   }
+}
+
+const SOURCE_SKIP = new Set(["node_modules", ".git", "__MACOSX", ".DS_Store", ".next", "dist", "build", "out"]);
+
+/** Reads an uploaded project's source files (not dependencies or old build output) for the sandbox. */
+export async function collectSourceFiles(root: string): Promise<{ path: string; content: Buffer }[]> {
+  const files: { path: string; content: Buffer }[] = [];
+  const walk = async (directory: string, prefix: string) => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (SOURCE_SKIP.has(entry.name) || entry.isSymbolicLink()) continue;
+      const full = join(directory, entry.name);
+      const relative = prefix ? prefix + "/" + entry.name : entry.name;
+      if (entry.isDirectory()) await walk(full, relative);
+      else if (entry.isFile()) files.push({ path: relative, content: await readFile(full) });
+    }
+  };
+  await walk(root, "");
+  return files;
 }
 
 export async function hasPackageLock(root: string): Promise<boolean> {

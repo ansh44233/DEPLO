@@ -5,6 +5,12 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Added
+- Per-project environment variables: encrypted with AES-256-GCM (per-project derived key), managed in a new Environment tab (add, edit, reveal, paste a .env), optional at import time, and passed to install/build steps. Values are redacted from build logs. Requires migration `0013_project_environment_variables.sql`.
+- GitHub repository picker: signed-in users choose from their own repositories (including private ones) with search, instead of pasting a URL. "Deploy" imports and deploys in one step.
+- ZIP uploads: a single wrapping folder is detected automatically, `__MACOSX` metadata is dropped, source ZIPs of Vite/React/CRA/static Next.js projects are built in Vercel Sandbox, and files over the host's request limit upload directly to a private Supabase Storage bucket through a one-time signed URL (up to 25 MB).
+- New "ember" design: hairline tile grids, mono section labels, coral accent, ASCII-art hero and serif accent type.
+
+### Added
 - Framework builds: Vite, React, Create React App and static-export Next.js repositories are built in a Vercel Sandbox microVM (clone, install, build) and the output is published to Cloudflare Pages. Works for dashboard deploys and push-to-deploy.
 - Safe tar extraction for build output (GNU long names, path confinement, size and file-count limits; links skipped).
 - Dashboard: Ctrl/Cmd+K command menu, live thumbnails on project cards, deploy timer and status strip, build-log viewer with copy, Redeploy, and a dismissible open-source card.

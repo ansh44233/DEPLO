@@ -8,10 +8,15 @@ import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/dep
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
+import { resolveSiteRoot } from "@/lib/uploads/site-root";
+import { isOwnStagedPath, StagedUploadError, takeStagedUpload } from "@/lib/uploads/staged-upload";
+import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
+import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 import { hasHtmlDocument, hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "@/lib/uploads/validate-upload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type RouteContext = { params: Promise<{ projectId: string }> };
 
@@ -60,19 +65,31 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("The upload request exceeds the 25 MiB request limit.", 413);
   }
 
-  let form: FormData;
-  try {
-    form = await request.formData();
-  } catch {
-    return jsonError("Send a valid multipart/form-data request.", 400);
-  }
-  const file = form.get("file");
   const kind = project.source_type;
-  if (!(file instanceof File)) return jsonError("Choose a file to upload.", 400);
-
-  const validationError = validateUploadSelection(file.name, file.size, kind);
-  if (validationError) return jsonError(validationError, 400);
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bytes: Uint8Array;
+  if ((request.headers.get("content-type") ?? "").includes("application/json")) {
+    // Large files are uploaded straight to private storage first; see /upload-url.
+    const body = await request.json().catch(() => null) as { stagedPath?: unknown; fileName?: unknown } | null;
+    if (!isOwnStagedPath(body?.stagedPath, user.id, project.id)) return jsonError("Upload the file again.", 400);
+    try {
+      bytes = await takeStagedUpload(body.stagedPath);
+    } catch (error) {
+      if (error instanceof StagedUploadError) return jsonError(error.message, error.status);
+      return jsonError("The uploaded file could not be read.", 502);
+    }
+  } else {
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return jsonError("Send a valid multipart/form-data request.", 400);
+    }
+    const file = form.get("file");
+    if (!(file instanceof File)) return jsonError("Choose a file to upload.", 400);
+    const validationError = validateUploadSelection(file.name, file.size, kind);
+    if (validationError) return jsonError(validationError, 400);
+    bytes = new Uint8Array(await file.arrayBuffer());
+  }
   if (kind === "zip" && !hasZipSignature(bytes.subarray(0, 4))) {
     return jsonError("The selected file does not have a valid ZIP signature.", 400);
   }
@@ -95,14 +112,42 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await writeFile(join(outputDirectory, "index.html"), bytes, { flag: "wx", mode: 0o600 });
     }
 
-    const indexFile = await stat(join(outputDirectory, "index.html")).catch(() => null);
-    if (!indexFile?.isFile()) {
-      return jsonError("The site must contain a root index.html file. DEPLO currently publishes static sites only.", 422);
+    // A zipped folder nests everything one level down; find the real root.
+    let siteRoot = await resolveSiteRoot(outputDirectory);
+    let build: { framework: string; log: string } | null = null;
+    const decision = await decideSite(siteRoot);
+    if (decision.kind === "unsupported") {
+      return jsonError(decision.message.replace("repository root", "top of the ZIP"), 422);
     }
-    await pruneUnpublishableFiles(outputDirectory);
-    const assets = await inspectStaticDirectory(outputDirectory);
+    if (decision.kind === "build") {
+      if (!sandboxBuildsAvailable()) return jsonError("This ZIP contains a " + decision.plan.framework + " project that needs a build, and builds are not available on this server. Upload the built output folder instead.", 422);
+      const builtRoot = join(workRoot, "built");
+      try {
+        const built = await buildInSandbox({
+          filesRoot: siteRoot,
+          accessToken: null,
+          decision,
+          hasNpmLock: await hasPackageLock(siteRoot),
+          destination: builtRoot,
+          buildEnv: await loadBuildEnv(user.id, project.id),
+        });
+        build = { framework: decision.plan.framework, log: built.log };
+      } catch (error) {
+        if (error instanceof SandboxBuildError) {
+          return NextResponse.json({ error: error.message, code: error.code, buildLog: error.log }, { status: 422, headers: { "Cache-Control": "no-store" } });
+        }
+        throw error;
+      }
+      siteRoot = builtRoot;
+    }
+    const indexFile = await stat(join(siteRoot, "index.html")).catch(() => null);
+    if (!indexFile?.isFile()) {
+      return jsonError("The ZIP needs an index.html at its top level (or inside a single folder).", 422);
+    }
+    await pruneUnpublishableFiles(siteRoot);
+    const assets = await inspectStaticDirectory(siteRoot);
     const { productionUrl } = await ensureCloudflarePagesProject(pagesTarget.config, pagesTarget.productionBranch);
-    const deployment = await deployStaticDirectory(outputDirectory, pagesTarget.productionBranch, pagesTarget.config);
+    const deployment = await deployStaticDirectory(siteRoot, pagesTarget.productionBranch, pagesTarget.config);
 
     let savedProject;
     try {
@@ -122,6 +167,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       deploymentUrl: deployment.url,
       fileCount: assets.fileCount,
       totalBytes: assets.totalBytes,
+      build,
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Static upload deployment failed.";

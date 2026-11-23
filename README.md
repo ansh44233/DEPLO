@@ -65,8 +65,9 @@
 <td width="50%" valign="top">
 
 ### 🚀 Ship
-- **GitHub import**: public and private repos, any branch
-- **ZIP and HTML upload**: drag, drop, live
+- **GitHub import**: pick from your repos (private too), any branch
+- **Environment variables**: encrypted per project, paste a whole `.env`
+- **ZIP and HTML upload**: built sites or raw Vite/React projects, up to 25 MB
 - **Framework builds**: Vite · React · CRA · Next.js static export
 - **Push to deploy**: GitHub App webhook redeploys on every push
 - **Smart uploads**: BLAKE3 content hashing, unchanged files are skipped
@@ -115,7 +116,7 @@
 
 1. Press **Deploy with Vercel** above.
 2. Fill in the environment variables (what each one is: [docs/VERCEL.md](docs/VERCEL.md#3-environment-variables-production)).
-3. Run the SQL files in [`supabase/migrations/`](supabase/migrations) in order on a new Supabase project.
+3. Run the SQL files in [`supabase/migrations/`](supabase/migrations) in order (0001 → 0014) on a new Supabase project.
 4. Open your deployment, sign in with GitHub, and ship something.
 
 ### Option B: run it locally
@@ -192,7 +193,7 @@ DEPLO/
 │   ├── uploads/                     # zip-slip & archive-bomb defenses
 │   └── workers/                     # worker auth, self-kick, queue draining
 ├── services/build-runner/           # optional self-hosted Firecracker runner
-├── supabase/migrations/             # 12 ordered SQL migrations
+├── supabase/migrations/             # 13 ordered SQL migrations
 ├── tests/                           # 270+ node:test cases
 └── docs/                            # Vercel guide, API reference, security notes
 ```
@@ -220,7 +221,8 @@ Every pull request runs migrations check, tests, typecheck and build in CI.
 - [x] Framework builds in Vercel Sandbox
 - [x] Rollbacks, logs, custom domains
 - [x] Command menu and live site previews
-- [ ] Per-project environment variables for builds
+- [x] Per-project environment variables for builds
+- [x] Pick repositories from your GitHub account
 - [x] Preview deployments for pull requests
 - [ ] Streaming build logs while the build runs
 - [ ] Team workspaces
