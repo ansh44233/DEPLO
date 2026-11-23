@@ -10,6 +10,19 @@ const expiredCookie = { ...cookieBase, maxAge: 0 };
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   let response: NextResponse;
+  // A fresh nonce per request: Next.js reads it from the request's CSP header and stamps its scripts.
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const headers = securityHeaders({
+    https: request.nextUrl.protocol === "https:",
+    development: process.env.NODE_ENV === "development",
+    nonce,
+  });
+  const forward = () => {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("Content-Security-Policy", headers["Content-Security-Policy"]);
+    requestHeaders.set("x-nonce", nonce);
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  };
 
   const rejection = crossSiteRejection({
     method: request.method,
@@ -34,18 +47,14 @@ export async function middleware(request: NextRequest) {
         : null;
       if (refreshed) {
         request.cookies.set("deplo_github_token", refreshed);
-        response = NextResponse.next({ request: { headers: request.headers } });
+        response = forward();
         response.cookies.set("deplo_github_token", refreshed, { ...cookieBase, maxAge: 60 * 60 * 24 * 7 });
       } else {
-        response = NextResponse.next();
+        response = forward();
       }
     }
   }
 
-  const headers = securityHeaders({
-    https: request.nextUrl.protocol === "https:",
-    development: process.env.NODE_ENV === "development",
-  });
   for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
   return response;
 }

@@ -4,7 +4,7 @@ import { DeployDemo, EmberField, Sparks } from "@/app/fx";
 
 const FEATURES = [
   { icon: GitBranch, title: "Git, ZIP or HTML", text: "Pick a repo from your GitHub, drop a ZIP, or paste a single page. Private repos work once you sign in." },
-  { icon: Cpu, title: "Real builds", text: "Vite, React, CRA and static Next.js build in a throwaway Firecracker microVM. Your code never shares a box with ours." },
+  { icon: Cpu, title: "Real builds", text: "Vite, React, CRA and static Next.js build in a throwaway Vercel Sandbox microVM. Your code never shares a box with ours." },
   { icon: KeyRound, title: "Encrypted env", text: "Per-project variables, sealed with AES-256-GCM and handed only to the build. Paste a whole .env at once." },
   { icon: Globe, title: "Edge hosting", text: "Every site gets its own Cloudflare Pages project and a URL that never changes between deploys." },
   { icon: RotateCcw, title: "Instant rollback", text: "Every production deploy is kept. Switch back in one click; nothing is rebuilt." },

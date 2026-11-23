@@ -41,12 +41,15 @@ export function crossSiteRejection(request: {
 }
 
 /** Security headers for every response. */
-export function securityHeaders(options: { https: boolean; development?: boolean }, env: Env = process.env): Record<string, string> {
+export function securityHeaders(options: { https: boolean; development?: boolean; nonce?: string }, env: Env = process.env): Record<string, string> {
   const supabase = originOf(env.SUPABASE_URL?.trim());
   const csp = [
     "default-src 'self'",
-    // Next.js inlines its bootstrap scripts; development also needs eval for fast refresh.
-    "script-src 'self' 'unsafe-inline'" + (options.development ? " 'unsafe-eval'" : ""),
+    // Pages carry a per-request nonce that Next.js puts on its own scripts, so no inline
+    // script without it runs. Development also needs eval for fast refresh.
+    (options.nonce
+      ? "script-src 'self' 'nonce-" + options.nonce + "' 'strict-dynamic'"
+      : "script-src 'self'") + (options.development ? " 'unsafe-eval'" : ""),
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",

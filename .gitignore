@@ -17,3 +17,7 @@ coverage/
 
 # Rust build output
 native/*/target/
+
+# Playwright
+playwright-report/
+test-results/

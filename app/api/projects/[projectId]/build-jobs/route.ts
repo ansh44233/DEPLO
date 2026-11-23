@@ -5,6 +5,7 @@ import { getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projec
 import { BuildJobStoreError, createOwnedBuildJob, listOwnedBuildJobs, type BuildFramework, type BuildPackageManager } from "@/lib/db/supabase-build-jobs";
 
 import { claimDeploySlot, rateLimitMessage } from "@/lib/db/supabase-deploy-rate-limit";
+import { readBuildRunnerConfiguration } from "@/lib/deploy/build-runner-contract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const project = await getOwnedProjectById(user.id, projectId);
     if (!project) return fail("Project not found in your account.", 404);
     if (project.source_type !== "github" || !project.repository_url || !project.branch) return fail("Build jobs currently require a saved GitHub project.", 422);
+    if (!readBuildRunnerConfiguration()) return fail("Runner builds are not available on this DEPLO. Deploy from the Overview tab instead.", 503);
     const slot = await claimDeploySlot(user.id);
     if (!slot.allowed) {
       return NextResponse.json({ error: rateLimitMessage(slot) }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(slot.retryAfterSeconds) } });

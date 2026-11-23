@@ -65,6 +65,8 @@ export default function Home() {
 
   const { notice, setNotice } = useNotice();
   const { readiness, readinessLoading, readinessError } = useReadiness();
+  // Runner-based builds only appear when this DEPLO has a build runner configured.
+  const buildsAvailable = readiness?.buildRunnerConfigured === true;
   const { signedInUser, setSignedInUser, githubAppStatus, setGithubAppStatus, githubAppStatusLoading, authLoading, githubAccess } = useAuth({ setNotice });
 
   useEffect(() => {
@@ -496,11 +498,11 @@ export default function Home() {
         githubAppStatus={githubAppStatus} githubAppStatusLoading={githubAppStatusLoading} signOut={signOut}
       />
 
-      {activeNav === "project" && <ProjectTabsNav projectTab={projectTab} setProjectTab={setProjectTab} hasActiveBuildJob={builds.hasActiveBuildJob} />}
+      {activeNav === "project" && <ProjectTabsNav projectTab={projectTab} setProjectTab={setProjectTab} hasActiveBuildJob={builds.hasActiveBuildJob} buildsAvailable={buildsAvailable} />}
 
       <main className="page">
         {providerBlocked && <div className="banner banner-warn" role="status">
-          <strong>Deployments are paused.</strong> The server is missing {readiness?.missing.join(", ")}. Add {readiness && readiness.missing.length > 1 ? "them" : "it"} to the environment and redeploy DEPLO.
+          <strong>Deployments are paused.</strong> {readiness && readiness.missing.length > 0 ? <>The server is missing {readiness.missing.join(", ")}. Add {readiness.missing.length > 1 ? "them" : "it"} to the environment and redeploy DEPLO.</> : "The server is not fully configured yet."}
         </div>}
 
         {activeNav === "home" ? (
@@ -528,7 +530,7 @@ export default function Home() {
               selected={selected} signedInUser={signedInUser} displayDeployments={displayDeployments}
               rollbackSelectedDeployment={rollbackSelectedDeployment} rollbackDeploymentId={rollbackDeploymentId} history={history}
             />}
-            {projectTab === "builds" && <BuildsTab selected={selected} signedInUser={signedInUser} builds={builds} recovery={recovery} />}
+            {projectTab === "builds" && buildsAvailable && <BuildsTab selected={selected} signedInUser={signedInUser} builds={builds} recovery={recovery} />}
             {projectTab === "environment" && <EnvironmentTab
               selected={selected} signedInUser={signedInUser} isDeployed={isDeployed} projectDeploying={projectDeploying}
               readiness={readiness} deploySelectedProject={deploySelectedProject} env={env}

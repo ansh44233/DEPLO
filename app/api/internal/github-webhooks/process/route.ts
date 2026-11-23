@@ -6,6 +6,7 @@ import { drainWorker, isAuthorizedWorkerRequest } from "@/lib/workers/background
 import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { deployStaticDirectory, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
+import { hasNewerDelivery } from "@/lib/github/superseded-delivery";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/github/webhook-worker";
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
@@ -28,6 +29,7 @@ type Delivery = {
   branch: string;
   commit_sha: string;
   attempt_count: number;
+  received_at?: string | null;
   /** Set for pull request deliveries: deploy a preview instead of production. */
   pull_request_number?: number | null;
 };
@@ -202,6 +204,7 @@ async function processNextDelivery(): Promise<NextResponse> {
     const pullRequestNumber = typeof delivery.pull_request_number === "number" ? delivery.pull_request_number : null;
     const previewUrls: string[] = [];
     let deployed = 0;
+    let superseded = false;
     for (const project of matches) {
       const installationId = await getInstallationId(config.baseUrl, config.serviceKey, project.owner_github_id);
       let installationToken: string | undefined;
@@ -255,6 +258,11 @@ async function processNextDelivery(): Promise<NextResponse> {
         await pruneUnpublishableFiles(publishRoot);
         await inspectStaticDirectory(publishRoot);
 
+        // Two pushes can build at once; only the newest may publish.
+        if (await hasNewerDelivery(config.baseUrl, config.serviceKey, delivery)) {
+          superseded = true;
+          continue;
+        }
         const target = getAccountPagesTarget(cloudflare, project.owner_github_id, project.slug);
         const { productionUrl } = await ensureCloudflarePagesProject(target.config, target.productionBranch);
         if (pullRequestNumber !== null) {
@@ -283,6 +291,10 @@ async function processNextDelivery(): Promise<NextResponse> {
       } finally {
         await rm(workRoot, { recursive: true, force: true }).catch(() => undefined);
       }
+    }
+    if (superseded && deployed === 0) {
+      await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "ignored", "superseded");
+      return NextResponse.json({ processed: true, deployed: 0, superseded: true }, { headers: { "Cache-Control": "no-store" } });
     }
     await setDeliveryStatus(config.baseUrl, config.serviceKey, delivery.delivery_id, "deployed");
     return NextResponse.json({

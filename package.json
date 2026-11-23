@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run check:migrations && tsx --test tests/api/*.test.ts tests/auth/*.test.ts tests/dashboard/*.test.ts tests/db/*.test.ts tests/github/*.test.ts tests/uploads/*.test.ts tests/deploy/*.test.ts tests/build-runner/*.test.ts tests/workers/*.test.ts tests/security/*.test.ts",
     "check:migrations": "tsx scripts/check-migrations.ts",
-    "build:wasm": "sh native/blake3-wasm/build.sh"
+    "build:wasm": "sh native/blake3-wasm/build.sh",
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@vercel/sandbox": "^3.0.0",
@@ -20,13 +22,17 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@playwright/test": "^1.49.0",
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.7",
-    "typescript": "^5.8.3",
-    "tsx": "^4.20.6",
     "@types/yauzl": "^3.4.0",
-    "yazl": "^3.3.1",
-    "@types/yazl": "^3.3.1"
+    "@types/yazl": "^3.3.1",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "^15.5.6",
+    "tsx": "^4.20.6",
+    "typescript": "^5.8.3",
+    "yazl": "^3.3.1"
   }
 }

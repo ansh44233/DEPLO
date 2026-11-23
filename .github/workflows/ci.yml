@@ -20,18 +20,48 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install dependencies
-        run: npm install
+          cache: npm
+      - name: Install dependencies (exactly as locked)
+        run: npm ci
       - name: Validate migration inventory
         run: npm run check:migrations
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        # Includes checking the committed lib/deploy/blake3.wasm against the JavaScript hasher byte for byte.
+        run: npm run test
       - name: Set up Rust for the BLAKE3 WebAssembly hasher
         run: rustup target add wasm32-unknown-unknown
-      - name: Build and test the Rust hasher
-        # Writes lib/deploy/blake3.wasm so the unit tests below check it against the JavaScript implementation.
-        run: ./native/blake3-wasm/build.sh
-      - name: Unit tests
-        run: npm run test
+      - name: Rust hasher still builds and passes its own tests
+        run: ./native/blake3-wasm/build.sh && npx tsx --test tests/deploy/blake3-wasm.test.ts
       - name: Typecheck
         run: npm run typecheck
       - name: Build
         run: npm run build
+
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies (exactly as locked)
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Browser tests (desktop and mobile)
+        run: npm run test:e2e
+      - name: Keep the report when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
