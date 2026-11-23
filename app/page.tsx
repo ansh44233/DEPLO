@@ -924,15 +924,12 @@ export default function Home() {
     let dismissed = false;
     try { dismissed = window.localStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
     if (dismissed) return;
-    // On phones the card would sit on top of the hero, so it waits until the visitor has scrolled past it.
     if (!window.matchMedia("(max-width: 640px)").matches) { setCommunityHidden(false); return; }
-    const onScroll = () => {
-      if (window.scrollY < 560) return;
-      setCommunityHidden(false);
-      window.removeEventListener("scroll", onScroll);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    // On phones the compact strip arrives a moment after load, or as soon as the visitor scrolls.
+    const show = () => { setCommunityHidden(false); window.removeEventListener("scroll", show); window.clearTimeout(timer); };
+    const timer = window.setTimeout(show, 2500);
+    window.addEventListener("scroll", show, { passive: true, once: true });
+    return () => { window.clearTimeout(timer); window.removeEventListener("scroll", show); };
   }, []);
 
   useEffect(() => {
