@@ -71,15 +71,19 @@ export async function decideSite(root: string): Promise<SiteDecision> {
   return { kind: "unsupported", message: "package.json has no build script, and there is no index.html at the repository root." };
 }
 
-export function installCommand(manager: FrameworkBuildPlan["packageManager"], hasNpmLock: boolean): string {
+export function installCommand(manager: FrameworkBuildPlan["packageManager"], _hasNpmLock?: boolean): string {
   const ensure = (tool: string) => "(command -v " + tool + " >/dev/null 2>&1 || npm install -g " + tool + " --silent)";
+  // Decide inside the sandbox: the clone there is what matters, and lockfiles are often not committed.
   switch (manager) {
     case "pnpm": return ensure("pnpm") + " && pnpm install --no-frozen-lockfile";
     case "yarn": return ensure("yarn") + " && yarn install --non-interactive";
     case "bun": return ensure("bun") + " && bun install";
-    default: return hasNpmLock ? "npm ci --no-audit --no-fund" : "npm install --no-audit --no-fund";
+    default: return "if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi";
   }
 }
+
+/** Fails early, with a directory listing, when the build starts outside the project folder. */
+export const PROJECT_GUARD = "if [ ! -f package.json ]; then echo \"package.json was not found in $(pwd)\" >&2; ls -la >&2; exit 2; fi";
 
 export function sandboxBuildsAvailable(env: Record<string, string | undefined> = process.env): boolean {
   if (env.DEPLO_DISABLE_SANDBOX_BUILDS === "1") return false;
@@ -168,7 +172,8 @@ export async function buildInSandbox(input: {
       log.push("Copied " + files.length + " uploaded files into the sandbox.");
     }
     const { plan } = input.decision;
-    const install = await run(installCommand(plan.packageManager, input.hasNpmLock), installCommand(plan.packageManager, input.hasNpmLock), 150_000);
+    const installScript = installCommand(plan.packageManager);
+    const install = await run(plan.packageManager + " install", PROJECT_GUARD + " && " + installScript, 150_000);
     if (install.exitCode !== 0) throw new SandboxBuildError("Installing dependencies failed. See the build log.", log.join("\n"), "install_failed");
 
     const buildCmd = (plan.packageManager === "npm" ? "npm" : plan.packageManager) + " run build";
