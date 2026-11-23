@@ -171,6 +171,7 @@ export default function Home() {
   const [githubAppStatusLoading, setGithubAppStatusLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsFetched, setProjectsFetched] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
@@ -281,7 +282,7 @@ export default function Home() {
       .catch((error) => {
         if (!cancelled) setProjectsError(error instanceof Error ? error.message : "Could not load your saved projects.");
       })
-      .finally(() => { if (!cancelled) setProjectsLoading(false); });
+      .finally(() => { if (!cancelled) { setProjectsLoading(false); setProjectsFetched(true); } });
     return () => { cancelled = true; };
   }, [signedInUser]);
 
@@ -1079,7 +1080,10 @@ export default function Home() {
 
           {projectsError && <div className="banner banner-error" role="alert">{projectsError}</div>}
 
-          {!authLoading && !signedInUser && projects.length === 0 ? (
+          {authLoading ? (
+            // Nothing until we know who this is, so a refresh never flashes the wrong screen.
+            <div className="boot" aria-busy="true" aria-label="Loading" />
+          ) : !signedInUser && projects.length === 0 ? (
             <>
               <section className="hero">
                 <EmberField />
@@ -1119,7 +1123,7 @@ export default function Home() {
                 </ol>
               </section>
             </>
-          ) : projectsLoading ? (
+          ) : projectsLoading || (signedInUser && !projectsFetched) ? (
             <div className="grid tiles tiles-3">{[0, 1, 2].map((key) => <div className="tile card-skeleton" key={key} />)}</div>
           ) : filteredProjects.length === 0 ? (
             <section className={"empty" + (search ? "" : " empty-campfire")}>

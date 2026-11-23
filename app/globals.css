@@ -362,6 +362,7 @@ kbd { font-family: var(--font-mono), monospace; font-size: 11px; padding: 2px 6p
 .community-actions { display: flex; gap: 8px; margin-top: 6px; }
 .community-actions .btn { flex: 1; }
 .label-short { display: none; }
+.boot { min-height: 70vh; }
 
 /* ── Responsive ────────────────────────────────────── */
 @media (max-width: 960px) {
