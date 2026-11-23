@@ -1,5 +1,5 @@
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { inspectWorkspaceLease } from "./workspace-lease";
 import { acquireWorkspaceOperationLock, isWorkspaceOperationLockBusy } from "./workspace-operation-lock";
 
@@ -49,7 +49,7 @@ export async function cleanupStaleWorkspaces(
       throw error;
     }
     if (!info.isDirectory() || info.isSymbolicLink() ||
-        resolve(path) !== path || !path.startsWith(canonicalRoot + "/")) {
+        resolve(path) !== path || !path.startsWith(canonicalRoot + sep)) {
       skipped++;
       continue;
     }
