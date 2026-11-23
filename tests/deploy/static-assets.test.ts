@@ -1,3 +1,4 @@
+import { skipWithoutSymlinks } from "../helpers/platform";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
@@ -34,7 +35,7 @@ test("enforces the Cloudflare Pages per-file size limit", () => {
   assert.notEqual(validatePagesFileSize(-1), null);
 });
 
-test("rejects symbolic links in a deployment directory", async () => {
+test("rejects symbolic links in a deployment directory", { skip: skipWithoutSymlinks }, async () => {
   const root = await mkdtemp(join(tmpdir(), "deplo-static-symlink-"));
   try {
     await writeFile(join(root, "index.html"), "<html></html>");
@@ -45,7 +46,7 @@ test("rejects symbolic links in a deployment directory", async () => {
   }
 });
 
-test("prunes secrets, VCS data, node_modules and symlinks so the rest still deploys", async () => {
+test("prunes secrets, VCS data, node_modules and symlinks so the rest still deploys", { skip: skipWithoutSymlinks }, async () => {
   const { mkdtemp, mkdir, writeFile, symlink, readdir, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");

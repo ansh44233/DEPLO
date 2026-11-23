@@ -1,5 +1,5 @@
 import { chmod, lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { createWorkspaceLease } from "./workspace-lease";
 import { acquireWorkspaceOperationLock } from "./workspace-operation-lock";
 
@@ -85,7 +85,7 @@ export async function createWorkspaceManager(
             if (!info) { release(); return; }
             if (!info.isDirectory() || info.isSymbolicLink() ||
                 resolve(workspaceRoot!) !== workspaceRoot! ||
-                !workspaceRoot!.startsWith(canonicalRoot + "/") ||
+                !workspaceRoot!.startsWith(canonicalRoot + sep) ||
                 !/^job-[A-Za-z0-9_-]+$/.test(workspaceRoot!.slice(canonicalRoot.length + 1))) {
               throw new Error("refusing_unsafe_workspace_cleanup");
             }

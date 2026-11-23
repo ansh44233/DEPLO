@@ -238,11 +238,11 @@ If Cloudflare deletion fails, DEPLO keeps the database project record so the own
 
 ## GitHub push webhook inbox
 
-DEPLO exposes `POST /api/webhooks/github` for GitHub `push` events. Configure a repository webhook with:
+DEPLO exposes `POST /api/webhooks/github` for GitHub `push` and `pull_request` events. Configure a repository webhook with:
 - Payload URL: `https://YOUR_DEPLO_HOST/api/webhooks/github`
 - Content type: `application/json`
 - Secret: the server-only `DEPLO_GITHUB_WEBHOOK_SECRET` value (at least 32 characters)
-- Event: **Just the push event**
+- Events: **Pushes** and **Pull requests** (pull requests from the same repository get preview deployments; forks are ignored; see [GitHub App setup](github-app.md#pull-request-previews))
 
 Apply `supabase/migrations/0002_github_webhook_deliveries.sql` before enabling the endpoint. The receiver validates GitHub's SHA-256 HMAC signature against the raw request body, bounds payload size, validates repository/branch/commit fields, ignores branch deletions, and stores each delivery ID under a unique constraint so GitHub retries are idempotent.
 

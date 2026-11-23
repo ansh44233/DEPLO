@@ -116,7 +116,7 @@
 
 1. Press **Deploy with Vercel** above.
 2. Fill in the environment variables (what each one is: [docs/VERCEL.md](docs/VERCEL.md#3-environment-variables-production)).
-3. Run the SQL files in [`supabase/migrations/`](supabase/migrations) in order (0001 → 0013) on a new Supabase project.
+3. Run the SQL files in [`supabase/migrations/`](supabase/migrations) in order (0001 → 0014) on a new Supabase project.
 4. Open your deployment, sign in with GitHub, and ship something.
 
 ### Option B: run it locally
@@ -223,7 +223,7 @@ Every pull request runs migrations check, tests, typecheck and build in CI.
 - [x] Command menu and live site previews
 - [x] Per-project environment variables for builds
 - [x] Pick repositories from your GitHub account
-- [ ] Preview deployments for pull requests
+- [x] Preview deployments for pull requests
 - [ ] Streaming build logs while the build runs
 - [ ] Team workspaces
 

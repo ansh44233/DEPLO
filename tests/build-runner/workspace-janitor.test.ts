@@ -1,3 +1,4 @@
+import { skipWithoutSymlinks } from "../helpers/platform";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
@@ -40,7 +41,7 @@ test("janitor respects retention and batch limits", async () => {
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
 
-test("janitor ignores unrelated files and symlink entries", async () => {
+test("janitor ignores unrelated files and symlink entries", { skip: skipWithoutSymlinks }, async () => {
   const parent = await mkdtemp(join(tmpdir(), "deplo-janitor-links-"));
   const root = join(parent, "workspaces");
   const target = join(parent, "target");
@@ -69,7 +70,7 @@ test("janitor rejects unsafe roots and cleanup policies", async () => {
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
 
-test("janitor refuses a symlink root", async () => {
+test("janitor refuses a symlink root", { skip: skipWithoutSymlinks }, async () => {
   const parent = await mkdtemp(join(tmpdir(), "deplo-janitor-root-"));
   const real = join(parent, "real");
   const linked = join(parent, "linked");

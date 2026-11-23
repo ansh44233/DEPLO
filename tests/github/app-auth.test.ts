@@ -35,3 +35,19 @@ test("requests a read-only installation token", async () => {
   assert.equal(requestUrl, "https://api.github.com/app/installations/987/access_tokens");
   assert.deepEqual(JSON.parse(requestBody), { permissions: { contents: "read", metadata: "read" } });
 });
+
+test("scopes the installation token to the requested repositories", async () => {
+  let requestBody = "";
+  await createInstallationAccessToken(987, "12345", pem, async (_input, init) => {
+    requestBody = String(init?.body);
+    return new Response(JSON.stringify({ token: "ghs_" + "x".repeat(35) }), { status: 201 });
+  }, ["website"]);
+  assert.deepEqual(JSON.parse(requestBody), { repositories: ["website"], permissions: { contents: "read", metadata: "read" } });
+});
+
+test("refuses an empty or malformed repository scope instead of widening the token", async () => {
+  const fetcher = async () => { throw new Error("must not call GitHub"); };
+  for (const scope of [[], [".."], ["."], ["a/b"], ["with space"], [""], ["x".repeat(101)]]) {
+    await assert.rejects(() => createInstallationAccessToken(987, "12345", pem, fetcher as typeof fetch, scope), /Invalid GitHub repository scope/);
+  }
+});

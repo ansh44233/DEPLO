@@ -1,3 +1,4 @@
+import { skipWithoutSymlinks } from "../helpers/platform";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -12,12 +13,13 @@ async function tempDir(prefix: string) { return mkdtemp(join(tmpdir(), prefix));
 async function makeTar(build: (dir: string) => Promise<void>, extraArgs: string[] = []): Promise<Buffer> {
   const dir = await tempDir("deplo-tar-src-");
   await build(dir);
-  const out = join(await tempDir("deplo-tar-out-"), "out.tar");
-  execFileSync("tar", ["-cf", out, ...extraArgs, "-C", dir, "."]);
-  return readFile(out);
+  const outDir = await tempDir("deplo-tar-out-");
+  // A relative archive name keeps GNU tar on Windows from reading "C:" as a remote host.
+  execFileSync("tar", ["-cf", "out.tar", ...extraArgs, "-C", dir, "."], { cwd: outDir });
+  return readFile(join(outDir, "out.tar"));
 }
 
-test("extracts a real tar archive including long GNU names and skips symlinks", async () => {
+test("extracts a real tar archive including long GNU names and skips symlinks", { skip: skipWithoutSymlinks }, async () => {
   const longName = "a".repeat(120) + "/" + "b".repeat(120) + ".js";
   const archive = await makeTar(async (dir) => {
     await writeFile(join(dir, "index.html"), "<!doctype html><title>x</title>");
