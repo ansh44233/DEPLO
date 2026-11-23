@@ -13,6 +13,8 @@ import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deplo
 import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
 import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
+import { dependencyCacheKey } from "@/lib/deploy/build-cache";
+import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,6 +139,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
       const outputRoot = join(workRoot, "output");
       try {
+        const buildEnv = await loadBuildEnv(user.id, project.id);
+        const cacheKey = await dependencyCacheKey(projectRoot, decision.plan.packageManager, Object.keys(buildEnv));
+        const cacheStore = cacheKey ? supabaseBuildCache(user.id, project.id) : null;
         const built = await buildInSandbox({
           repositoryUrl: "https://github.com/" + repository.owner + "/" + repository.repository + ".git",
           revision: project.branch,
@@ -144,7 +149,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
           decision,
           hasNpmLock: await hasPackageLock(projectRoot),
           destination: outputRoot,
-          buildEnv: await loadBuildEnv(user.id, project.id),
+          buildEnv,
+          ...(cacheKey && cacheStore ? { cache: { key: cacheKey, sourceRoot: projectRoot, store: cacheStore } } : {}),
         });
         build = { framework: decision.plan.framework, outputDirectory: built.outputDirectory, log: built.log };
       } catch (error) {

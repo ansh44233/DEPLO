@@ -2,6 +2,7 @@ import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { detectFrameworkBuildPlan, type FrameworkBuildPlan } from "./framework-detection";
 import { extractTar } from "./tar-extract";
+import { KEEP_ONLY_NODE_MODULES, SNAPSHOT_ID_PATTERN, type BuildCacheStore } from "./build-cache";
 
 /** Minimal surface of @vercel/sandbox that DEPLO uses, so tests can fake it. */
 export type SandboxCommandResult = { exitCode: number; output(stream?: "both" | "stdout" | "stderr"): Promise<string> };
@@ -9,10 +10,14 @@ export type SandboxInstance = {
   runCommand(params: { cmd: string; args?: string[]; env?: Record<string, string>; timeoutMs?: number }): Promise<SandboxCommandResult>;
   readFileToBuffer(params: { path: string }): Promise<Buffer | null>;
   writeFiles?(files: { path: string; content: Buffer }[]): Promise<unknown>;
+  /** Saves the filesystem and stops the sandbox. */
+  snapshot?(options?: { expiration?: number }): Promise<{ snapshotId: string }>;
   stop(): Promise<unknown>;
 };
 export type SandboxCreateOptions = {
-  source?: { type: "git"; url: string; depth: number; revision: string; username?: string; password?: string };
+  source?:
+    | { type: "git"; url: string; depth: number; revision: string; username?: string; password?: string }
+    | { type: "snapshot"; snapshotId: string };
   resources: { vcpus: number };
   timeout: number;
   persistent: boolean;
@@ -109,13 +114,7 @@ function redact(text: string, secret: string | null, extra: string[] = []): stri
   return result;
 }
 
-/**
- * Clones the repository into an isolated Vercel Sandbox microVM, installs
- * dependencies, runs the build script, and copies the static output back into
- * `destination`. DEPLO's own secrets never enter the sandbox; a GitHub token is
- * used only as the clone credential for the user's own repository.
- */
-export async function buildInSandbox(input: {
+export type SandboxBuildInput = {
   /** Git source. Omit both and pass filesRoot to build uploaded files instead. */
   repositoryUrl?: string;
   revision?: string;
@@ -129,7 +128,52 @@ export async function buildInSandbox(input: {
   budgetMs?: number;
   /** The project's environment variables, available to install and build commands. */
   buildEnv?: Record<string, string>;
-}): Promise<{ outputDirectory: string; fileCount: number; totalBytes: number; log: string }> {
+  /**
+   * Dependency cache. `key` comes from dependencyCacheKey(); `sourceRoot` is a
+   * local copy of the same source, copied into a restored sandbox instead of a
+   * fresh clone.
+   */
+  cache?: { key: string; sourceRoot: string; store: BuildCacheStore; restore?: boolean };
+};
+
+export type SandboxBuildResult = { outputDirectory: string; fileCount: number; totalBytes: number; log: string; cache: "hit" | "saved" | "miss" | "off" };
+
+/**
+ * Clones the repository into an isolated Vercel Sandbox microVM, installs
+ * dependencies, runs the build script, and copies the static output back into
+ * `destination`. DEPLO's own secrets never enter the sandbox; a GitHub token is
+ * used only as the clone credential for the user's own repository.
+ *
+ * With `cache`, a build whose dependencies match the last saved snapshot starts
+ * from that snapshot, gets the local source copied in (no clone, so no token in
+ * the sandbox) and skips the install. A successful uncached build saves a new
+ * snapshot that holds only node_modules.
+ */
+export async function buildInSandbox(input: SandboxBuildInput): Promise<SandboxBuildResult> {
+  const started = Date.now();
+  const attempt = { restored: false };
+  try {
+    return await runSandboxBuild(input, attempt);
+  } catch (error) {
+    // A restored cache differs from a fresh clone in small ways (file modes, a
+    // dependency that changed outside the lockfile). If the build fails on it,
+    // try once more from a clean install before reporting the failure.
+    const budget = input.budgetMs ?? 250_000;
+    const left = budget - (Date.now() - started);
+    if (!attempt.restored || !(error instanceof SandboxBuildError) || !RETRYABLE_ON_CACHE.has(error.code) || left < 90_000) throw error;
+    const retried = await runSandboxBuild({ ...input, budgetMs: left, cache: { ...input.cache!, restore: false } }, { restored: false }).catch((retryError: unknown) => {
+      if (retryError instanceof SandboxBuildError) {
+        throw new SandboxBuildError(retryError.message, error.log + "\n\nRetried without the dependency cache:\n" + retryError.log, retryError.code);
+      }
+      throw retryError;
+    });
+    return { ...retried, log: error.log + "\n\nThe build failed with the dependency cache, so it was retried from a clean install:\n" + retried.log };
+  }
+}
+
+const RETRYABLE_ON_CACHE = new Set(["install_failed", "build_failed", "output_missing"]);
+
+async function runSandboxBuild(input: SandboxBuildInput, attempt: { restored: boolean }): Promise<SandboxBuildResult> {
   const started = Date.now();
   const budget = input.budgetMs ?? 250_000;
   const remaining = () => Math.max(10_000, budget - (Date.now() - started));
@@ -138,8 +182,25 @@ export async function buildInSandbox(input: {
   const buildEnv = input.buildEnv ?? {};
   const envValues = Object.values(buildEnv);
 
-  let sandbox: SandboxInstance;
-  try {
+  const createOptions = { resources: { vcpus: 2 }, timeout: 10 * 60 * 1000, persistent: false };
+  let sandbox: SandboxInstance | null = null;
+  let restored = false;
+  if (input.cache?.sourceRoot && input.cache.restore !== false) {
+    const entry = await input.cache.store.load().catch(() => null);
+    if (entry && entry.key === input.cache.key && SNAPSHOT_ID_PATTERN.test(entry.snapshotId)) {
+      try {
+        sandbox = await factory({ source: { type: "snapshot", snapshotId: entry.snapshotId }, ...createOptions });
+        restored = true;
+        attempt.restored = true;
+        log.push("Restored the dependency cache from the last build.");
+      } catch {
+        // Snapshots expire; fall back to a normal build.
+        log.push("The dependency cache has expired; installing from scratch.");
+      }
+    }
+  }
+
+  if (!sandbox) try {
     sandbox = await factory({
       ...(input.repositoryUrl && input.revision ? {
         source: {
@@ -147,32 +208,42 @@ export async function buildInSandbox(input: {
           ...(input.accessToken ? { username: "x-access-token", password: input.accessToken } : {}),
         },
       } : {}),
-      resources: { vcpus: 2 },
-      timeout: 10 * 60 * 1000,
-      persistent: false,
+      ...createOptions,
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "unknown error";
     throw new SandboxBuildError("The build sandbox could not start. On Vercel this needs Sandbox access for the project (Hobby includes a free monthly quota).", redact(detail, input.accessToken), "sandbox_unavailable");
   }
 
+  const box: SandboxInstance = sandbox;
+  let snapshotted = false;
   const run = async (label: string, script: string, timeoutMs: number, env: Record<string, string> = {}) => {
     log.push("$ " + label);
-    const result = await sandbox.runCommand({ cmd: "bash", args: ["-lc", script], env: { ...buildEnv, CI: "1", ...env }, timeoutMs: Math.min(timeoutMs, remaining()) });
+    const result = await box.runCommand({ cmd: "bash", args: ["-lc", script], env: { ...buildEnv, CI: "1", ...env }, timeoutMs: Math.min(timeoutMs, remaining()) });
     const output = await result.output("both").catch(() => "");
     log.push(tail(redact(output, input.accessToken, envValues)));
     return { exitCode: result.exitCode, output };
   };
 
   try {
-    if (input.filesRoot) {
-      if (!sandbox.writeFiles) throw new SandboxBuildError("This sandbox cannot receive uploaded files.", "", "sandbox_unavailable");
-      const files = await collectSourceFiles(input.filesRoot);
-      for (let index = 0; index < files.length; index += 200) await sandbox.writeFiles(files.slice(index, index + 200));
-      log.push("Copied " + files.length + " uploaded files into the sandbox.");
+    const copyRoot = restored ? input.cache!.sourceRoot : input.filesRoot;
+    if (restored) {
+      const reset = await run("clear previous source", KEEP_ONLY_NODE_MODULES, 30_000);
+      if (reset.exitCode !== 0) throw new SandboxBuildError("The cached build folder could not be cleared.", log.join("\n"), "build_failed");
+    }
+    if (copyRoot) {
+      if (!box.writeFiles) throw new SandboxBuildError("This sandbox cannot receive uploaded files.", "", "sandbox_unavailable");
+      // ZIP uploads drop stale dist/, build/ and out/ folders; a restored checkout keeps them, as a fresh clone would.
+      const files = await collectSourceFiles(copyRoot, input.filesRoot ? UPLOAD_SKIP : CHECKOUT_SKIP);
+      for (let index = 0; index < files.length; index += 200) await box.writeFiles(files.slice(index, index + 200));
+      log.push("Copied " + files.length + (restored ? " source" : " uploaded") + " files into the sandbox.");
     }
     const { plan } = input.decision;
-    const installScript = installCommand(plan.packageManager);
+    const freshInstall = installCommand(plan.packageManager);
+    // The cache key covers package.json dependencies and lockfiles, so a restored node_modules is already current.
+    const installScript = restored
+      ? "if [ -d node_modules ]; then echo 'Dependencies unchanged; reusing cached node_modules.'; else " + freshInstall + "; fi"
+      : freshInstall;
     const install = await run(plan.packageManager + " install", PROJECT_GUARD + " && " + installScript, 150_000);
     if (install.exitCode !== 0) throw new SandboxBuildError("Installing dependencies failed. See the build log.", log.join("\n"), "install_failed");
 
@@ -191,27 +262,54 @@ export async function buildInSandbox(input: {
       throw new SandboxBuildError("The build finished but produced no folder with an index.html (looked in " + input.decision.outputCandidates.join(", ") + ").", log.join("\n"), "output_missing");
     }
 
-    const archive = await sandbox.readFileToBuffer({ path: "/tmp/deplo-output.tar" });
+    const archive = await box.readFileToBuffer({ path: "/tmp/deplo-output.tar" });
     if (!archive) throw new SandboxBuildError("The build output could not be copied out of the sandbox.", log.join("\n"), "output_unreadable");
     const extracted = await extractTar(Buffer.from(archive), input.destination);
     log.push("Built " + plan.framework + " output from " + outputDirectory + "/ (" + extracted.fileCount + " files) in " + Math.round((Date.now() - started) / 1000) + "s.");
-    return { outputDirectory, ...extracted, log: log.join("\n") };
+
+    let cacheResult: "hit" | "saved" | "miss" | "off" = !input.cache ? "off" : restored ? "hit" : "miss";
+    const store = input.cache?.store;
+    // Save only after a successful build, only when there is time left, and never
+    // with source, .git (clone credentials) or build caches inside the snapshot.
+    if (input.cache && store?.save && !restored && box.snapshot && budget - (Date.now() - started) > SNAPSHOT_TIME_RESERVE_MS) {
+      try {
+        const cleared = await run("prepare dependency cache", KEEP_ONLY_NODE_MODULES + " && rm -rf node_modules/.cache", 30_000);
+        if (cleared.exitCode === 0) {
+          const snapshot = await box.snapshot({ expiration: CACHE_EXPIRATION_MS });
+          snapshotted = true;
+          if (SNAPSHOT_ID_PATTERN.test(snapshot.snapshotId)) {
+            await store.save({ key: input.cache.key, snapshotId: snapshot.snapshotId });
+            cacheResult = "saved";
+            log.push("Saved the dependency cache for the next build.");
+          }
+        }
+      } catch {
+        log.push("The dependency cache could not be saved; the next build will install from scratch.");
+      }
+    }
+    return { outputDirectory, ...extracted, log: log.join("\n"), cache: cacheResult };
   } catch (error) {
     if (error instanceof SandboxBuildError) throw error;
     throw new SandboxBuildError(error instanceof Error ? error.message : "The build failed.", log.join("\n"), "build_failed");
   } finally {
-    await sandbox.stop().catch(() => undefined);
+    if (!snapshotted) await box.stop().catch(() => undefined);
   }
 }
 
-const SOURCE_SKIP = new Set(["node_modules", ".git", "__MACOSX", ".DS_Store", ".next", "dist", "build", "out"]);
+/** Snapshots are kept for 7 days after their last use. */
+const CACHE_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000;
+/** Time a snapshot needs; skip saving the cache when the request is close to its limit. */
+const SNAPSHOT_TIME_RESERVE_MS = 45_000;
+
+const UPLOAD_SKIP = new Set(["node_modules", ".git", "__MACOSX", ".DS_Store", ".next", "dist", "build", "out"]);
+const CHECKOUT_SKIP = new Set(["node_modules", ".git", "__MACOSX", ".DS_Store"]);
 
 /** Reads an uploaded project's source files (not dependencies or old build output) for the sandbox. */
-export async function collectSourceFiles(root: string): Promise<{ path: string; content: Buffer }[]> {
+export async function collectSourceFiles(root: string, skip: ReadonlySet<string> = UPLOAD_SKIP): Promise<{ path: string; content: Buffer }[]> {
   const files: { path: string; content: Buffer }[] = [];
   const walk = async (directory: string, prefix: string) => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (SOURCE_SKIP.has(entry.name) || entry.isSymbolicLink()) continue;
+      if (skip.has(entry.name) || entry.isSymbolicLink()) continue;
       const full = join(directory, entry.name);
       const relative = prefix ? prefix + "/" + entry.name : entry.name;
       if (entry.isDirectory()) await walk(full, relative);

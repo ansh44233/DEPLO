@@ -10,11 +10,12 @@ test("repository migration inventory is contiguous and correctly named", () => {
   const result = validateMigrationInventory(files);
 
   assert.equal(result.valid, true, result.errors.join("\n"));
-  assert.equal(result.ordered.length, 14);
+  assert.equal(result.ordered.length, 15);
   assert.equal(result.ordered[0], "0001_account_projects.sql");
   assert.equal(result.ordered[11], "0012_recovery_inventory_nonce_retention.sql");
   assert.equal(result.ordered[12], "0013_project_environment_variables.sql");
   assert.equal(result.ordered[13], "0014_pull_request_preview_deliveries.sql");
+  assert.equal(result.ordered[14], "0015_project_build_caches.sql");
 });
 
 test("rejects an empty inventory and a sequence that does not start at 0001", () => {
