@@ -22,8 +22,13 @@ export async function createInstallationAccessToken(
   appId: string,
   key: string,
   fetcher: typeof fetch = fetch,
+  /** Names (without owner) of the only repositories the token may read; omit for every repository in the installation. */
+  repositories?: readonly string[],
 ): Promise<string> {
   if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error("Invalid GitHub App installation.");
+  if (repositories && (repositories.length === 0 || repositories.some((name) => !/^[A-Za-z0-9_.-]{1,100}$/.test(name) || name === "." || name === ".."))) {
+    throw new Error("Invalid GitHub repository scope.");
+  }
   const jwt = createGitHubAppJwt(appId, key);
   const response = await fetcher(GITHUB_API + "/app/installations/" + installationId + "/access_tokens", {
     method: "POST",
@@ -34,7 +39,7 @@ export async function createInstallationAccessToken(
       "Content-Type": "application/json",
       "User-Agent": "DEPLO",
     },
-    body: JSON.stringify({ permissions: { contents: "read", metadata: "read" } }),
+    body: JSON.stringify({ ...(repositories ? { repositories } : {}), permissions: { contents: "read", metadata: "read" } }),
     cache: "no-store",
     signal: AbortSignal.timeout(8_000),
   });

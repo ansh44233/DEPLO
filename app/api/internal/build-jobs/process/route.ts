@@ -74,7 +74,7 @@ async function stageSourceForRunner(job: NonNullable<Awaited<ReturnType<typeof c
   const appId = process.env.GITHUB_APP_ID?.trim() ?? "";
   const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim() ?? "";
   if (!appId || !privateKey) throw new Error("GitHub App source access is not configured.");
-  const installationToken = await createInstallationAccessToken(installationId, appId, privateKey);
+  const installationToken = await createInstallationAccessToken(installationId, appId, privateKey, fetch, [repository.repository]);
   const archive = await downloadGitHubSourceArchive(repository, job.source_commit_sha, installationToken);
   const repositoryFullName = repository.owner + "/" + repository.repository;
   const uploaded = await uploadBuildSourceArchive({

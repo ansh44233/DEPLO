@@ -30,6 +30,14 @@ Apply migrations `0004_github_app_installations.sql` and `0005_github_app_instal
 
 When a pull request is opened, reopened or gets new commits, DEPLO builds its head commit for every project that deploys the PR's base branch. Each preview is published to the Cloudflare Pages branch `pr-<number>` and served at `https://pr-<number>.<project>.pages.dev`; the production URL never changes. Previews appear in the project's deployment history as **preview** deployments. Pull requests from forks are ignored, because their code is untrusted and would otherwise be fetched with the installation token. Apply migration `0013_pull_request_preview_deliveries.sql` before subscribing to **Pull request** events.
 
+### Security notes for previews
+
+- **Who can trigger a build.** Any pull request from a branch in the same repository, so anyone with write access can run build scripts in the sandbox. Treat write access to a deployed repository accordingly, and keep branch protection on the production branch.
+- **Forks are never built.** A pull request whose head is not provably the base repository (different name or different repository ID) is ignored.
+- **The GitHub token is limited to one repository.** DEPLO mints each installation token for only the repository being built, with read-only Contents and Metadata. A build script that leaks it cannot read your other repositories.
+- **Previews are public.** `pr-<number>.<project>.pages.dev` is reachable by anyone who has the URL, like production, including for private repositories. Do not put unreleased secrets or confidential content in a pull request of a deployed repository.
+- **Previews stay until the project is deleted.** Closing a pull request does not remove its preview, and an older queued commit that is retried after a newer one can briefly replace the newer preview.
+
 Installation tokens are minted on demand using a short-lived RS256 app JWT and request only Contents and Metadata read permissions. Tokens are never stored. Automatic webhook deployments use the installation belonging to each DEPLO account and can access private repositories selected in that installation. Accounts without an installation mapping retain public-repository fallback behavior.
 
 ## Deployment scope

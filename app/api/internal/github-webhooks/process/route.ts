@@ -11,6 +11,7 @@ import { matchesWebhookProject, type WebhookProjectCandidate } from "@/lib/githu
 import { createInstallationAccessToken } from "@/lib/github/app-auth";
 import { getGitHubArchiveHeaders } from "@/lib/github/webhook-archive";
 import { previewBranchFor, previewUrlFor } from "@/lib/github/pull-request-preview";
+import { repositoryNameOf } from "@/lib/github/repository-name";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 
 export const runtime = "nodejs";
@@ -205,7 +206,8 @@ async function processNextDelivery(): Promise<NextResponse> {
         const appId = process.env.GITHUB_APP_ID?.trim() ?? "";
         const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.trim() ?? "";
         if (!appId || !privateKey) throw new Error("github_app_not_configured");
-        installationToken = await createInstallationAccessToken(installationId, appId, privateKey);
+        // Scope the token to this one repository: the sandbox runs the commit's own build scripts.
+        installationToken = await createInstallationAccessToken(installationId, appId, privateKey, fetch, [repositoryNameOf(delivery.repository_full_name)]);
       }
 
       const workRoot = await mkdtemp(join(tmpdir(), "deplo-webhook-"));

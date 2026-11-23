@@ -4,6 +4,7 @@ import { kickWorker } from "@/lib/workers/background";
 import { safeEqual } from "@/lib/auth/session";
 import { normalizeInstallationLifecycleEvent } from "@/lib/github/installation-lifecycle";
 import { normalizePullRequestEvent } from "@/lib/github/pull-request-preview";
+import { isValidRepositoryFullName } from "@/lib/github/repository-name";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +12,6 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 256 * 1024;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const DELIVERY_PATTERN = /^[0-9a-f-]{36}$/i;
-const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const REF_PATTERN = /^refs\/heads\/(.{1,200})$/;
 
 type PushPayload = {
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     const after = pushPayload.after;
     const match = typeof ref === "string" ? REF_PATTERN.exec(ref) : null;
     if (
-      typeof repository !== "string" || !REPOSITORY_PATTERN.test(repository) ||
+      !isValidRepositoryFullName(repository) ||
       !match || typeof after !== "string" || !SHA_PATTERN.test(after) ||
       typeof pushPayload.deleted !== "boolean"
     ) return error("Webhook payload is missing valid repository, branch, or commit data.", 400);

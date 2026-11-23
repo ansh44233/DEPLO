@@ -1,5 +1,6 @@
+import { isValidRepositoryFullName } from "./repository-name";
+
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
-const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 // Git branch names: no control characters, spaces, or the characters git forbids in refs.
 const BRANCH_PATTERN = /^(?!\/)(?!.*\.\.)[^\x00-\x20~^:?*[\\\x7f]{1,200}(?<!\/)(?<!\.lock)$/;
 const MAX_PULL_REQUEST_NUMBER = 999_999_999;
@@ -43,7 +44,7 @@ export function normalizePullRequestEvent(payload: unknown): PullRequestPreviewE
   const repositoryFullName = repository?.full_name;
 
   if (
-    typeof repositoryFullName !== "string" || !REPOSITORY_PATTERN.test(repositoryFullName) ||
+    !isValidRepositoryFullName(repositoryFullName) ||
     typeof number !== "number" || !Number.isSafeInteger(number) || number < 1 || number > MAX_PULL_REQUEST_NUMBER ||
     !base || typeof base.ref !== "string" || !BRANCH_PATTERN.test(base.ref) ||
     !head || typeof head.sha !== "string" || !SHA_PATTERN.test(head.sha)
@@ -51,9 +52,17 @@ export function normalizePullRequestEvent(payload: unknown): PullRequestPreviewE
 
   if (!PREVIEW_ACTIONS.has(action)) return { kind: "ignore", reason: "action-not-previewed" };
 
-  // A deleted fork has no head repository; treat it like any other fork.
+  // Only a head that is provably the base repository may be built. A deleted fork has no
+  // head repository, and any head we cannot validate is treated as a fork. The name must be
+  // plain ASCII (so case-folding cannot make a look-alike equal), and when GitHub supplies
+  // both immutable repository IDs they must match too.
   const headFullName = headRepository?.full_name;
-  if (typeof headFullName !== "string" || headFullName.toLowerCase() !== repositoryFullName.toLowerCase()) {
+  if (!isValidRepositoryFullName(headFullName) || headFullName.toLowerCase() !== repositoryFullName.toLowerCase()) {
+    return { kind: "ignore", reason: "fork-pull-request" };
+  }
+  const baseId = repository?.id;
+  const headId = headRepository?.id;
+  if ((baseId !== undefined || headId !== undefined) && (typeof baseId !== "number" || baseId !== headId)) {
     return { kind: "ignore", reason: "fork-pull-request" };
   }
 
