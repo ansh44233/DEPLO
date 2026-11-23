@@ -20,7 +20,7 @@ DEPLO's dashboard and API are a standard Next.js app and run on Vercel Functions
 
 1. **Supabase**: create a project and run every file in `supabase/migrations/` in order (see [migration runbook](SUPABASE_MIGRATION_RUNBOOK.md)).
 2. **Cloudflare**: create an API token with **Cloudflare Pages: Edit** permission and note your account ID.
-3. **GitHub OAuth App**: callback URL `https://<your-domain>/api/auth/github/callback`.
+3. **Sign in with GitHub**: use the **GitHub App's** client ID and secret (recommended, see [Sign in with the GitHub App](github-app.md#sign-in-with-the-github-app)) or a classic OAuth App. Either way the callback URL is `https://<your-domain>/api/auth/github/callback`.
 4. *(Optional)* **GitHub App** for private repositories and push deploys. See [GitHub App setup](github-app.md). Webhook URL: `https://<your-domain>/api/webhooks/github`.
 
 ## 2. Create the Vercel project
@@ -36,7 +36,7 @@ Generate every secret separately, for example with `openssl rand -base64 48`.
 | --- | --- | --- |
 | `DEPLO_BASE_URL` | yes | `https://<your-domain>`, no trailing path |
 | `DEPLO_SESSION_SECRET` | yes | ≥ 32 characters |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | yes | OAuth App |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | yes | The GitHub App's client ID and secret (recommended) or an OAuth App's. An `Iv…` client ID switches sign-in to the App automatically; `DEPLO_GITHUB_SIGN_IN=app` or `oauth` overrides that |
 | `GITHUB_TOKEN_ENCRYPTION_KEY` | yes | ≥ 32 characters |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | yes | Pages Edit token |

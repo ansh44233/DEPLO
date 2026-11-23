@@ -1,25 +1,20 @@
+import type { GitHubCredentials } from "./github-token";
+
 export type GitHubTokenExchange = { clientId: string; clientSecret: string; code: string; redirectUri: string };
 
+type TokenResult = GitHubCredentials | { error: string };
+
 /**
- * Exchanges an OAuth authorization code for a user access token.
- * The body is form-encoded, so the Content-Type must say so; GitHub rejects a
- * form body labelled as JSON.
+ * Posts to GitHub's token endpoint. The body is form-encoded, so the
+ * Content-Type must say so; GitHub rejects a form body labelled as JSON.
  */
-export async function exchangeGitHubCode(
-  input: GitHubTokenExchange,
-  fetcher: typeof fetch = fetch,
-): Promise<{ accessToken: string } | { error: string }> {
+async function requestToken(fields: Record<string, string>, fetcher: typeof fetch, nowSeconds: number): Promise<TokenResult> {
   let response: Response;
   try {
     response = await fetcher("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: input.clientId,
-        client_secret: input.clientSecret,
-        code: input.code,
-        redirect_uri: input.redirectUri,
-      }).toString(),
+      body: new URLSearchParams(fields).toString(),
       signal: AbortSignal.timeout(8_000),
       cache: "no-store",
     });
@@ -27,11 +22,50 @@ export async function exchangeGitHubCode(
     return { error: "github_unreachable" };
   }
   if (!response.ok) return { error: "token_http_" + response.status };
-  let data: { access_token?: unknown; error?: unknown };
+  let data: { access_token?: unknown; error?: unknown; refresh_token?: unknown; expires_in?: unknown; refresh_token_expires_in?: unknown };
   try { data = await response.json() as typeof data; } catch { return { error: "token_invalid_response" }; }
   if (typeof data.error === "string" && /^[a-z_]{1,64}$/.test(data.error)) return { error: data.error };
-  if (typeof data.access_token !== "string" || !data.access_token) return { error: "token_missing" };
-  return { accessToken: data.access_token };
+  if (typeof data.access_token !== "string" || !data.access_token || data.access_token.length > 4096) return { error: "token_missing" };
+  const seconds = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? nowSeconds + value : null;
+  const refreshToken = typeof data.refresh_token === "string" && data.refresh_token && data.refresh_token.length <= 4096 ? data.refresh_token : null;
+  return {
+    accessToken: data.access_token,
+    refreshToken,
+    expiresAt: seconds(data.expires_in),
+    refreshExpiresAt: refreshToken ? seconds(data.refresh_token_expires_in) : null,
+  };
+}
+
+/** Exchanges an authorization code for user credentials (OAuth App or GitHub App sign-in). */
+export async function exchangeGitHubCode(
+  input: GitHubTokenExchange,
+  fetcher: typeof fetch = fetch,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<TokenResult> {
+  return requestToken({
+    client_id: input.clientId,
+    client_secret: input.clientSecret,
+    code: input.code,
+    redirect_uri: input.redirectUri,
+  }, fetcher, nowSeconds);
+}
+
+/**
+ * Exchanges a GitHub App refresh token for new credentials. GitHub App user
+ * tokens expire after 8 hours; each refresh token works once.
+ */
+export async function refreshGitHubCredentials(
+  input: { clientId: string; clientSecret: string; refreshToken: string },
+  fetcher: typeof fetch = fetch,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): Promise<TokenResult> {
+  if (!input.clientId || !input.clientSecret || !input.refreshToken) return { error: "refresh_not_configured" };
+  return requestToken({
+    client_id: input.clientId,
+    client_secret: input.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: input.refreshToken,
+  }, fetcher, nowSeconds);
 }
 
 /**

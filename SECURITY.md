@@ -30,6 +30,11 @@ before public disclosure.
   private ones with a GitHub App installation token limited to that one
   repository (read-only, under an hour), and otherwise the archive DEPLO
   already downloaded is copied in. DEPLO's own secrets never enter the sandbox.
+- **Least-privilege sign-in.** With the GitHub App's client credentials,
+  "Sign in with GitHub" grants only the App's read-only permissions on
+  repositories where it is installed, with tokens that expire after 8 hours
+  and are refreshed server-side. A classic OAuth App needs the `repo` scope
+  (read and write on every repository), so the App is recommended.
 - **Sessions** are HMAC-signed, HttpOnly, SameSite=Lax cookies that expire
   after 7 days. Each sign-in has a random ID; **Sign out** records it
   (migration 0016) so a copied cookie stops working, and revokes the GitHub

@@ -10,7 +10,7 @@ test("sends a form-encoded body with a matching Content-Type", async () => {
     seen = init;
     return Response.json({ access_token: "gho_token", token_type: "bearer" });
   }) as typeof fetch;
-  assert.deepEqual(await exchangeGitHubCode(input, fetcher), { accessToken: "gho_token" });
+  assert.deepEqual(await exchangeGitHubCode(input, fetcher), { accessToken: "gho_token", refreshToken: null, expiresAt: null, refreshExpiresAt: null });
   const headers = new Headers(seen?.headers);
   assert.equal(headers.get("content-type"), "application/x-www-form-urlencoded");
   assert.equal(headers.get("accept"), "application/json");

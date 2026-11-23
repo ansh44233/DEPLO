@@ -5,6 +5,9 @@ All notable changes to DEPLO are documented here.
 ## Unreleased
 
 ### Security
+- "Sign in with GitHub" can use the GitHub App's client credentials instead of a classic OAuth App. DEPLO then asks for no scopes: the user's token can only read repositories where the App is installed (instead of `repo`, which allows reading and writing every repository), and it expires after 8 hours. Expiring tokens are refreshed in middleware, with concurrent requests sharing one refresh. The App is detected from an `Iv…` client ID; `DEPLO_GITHUB_SIGN_IN` overrides it. The repository picker explains that only repositories where the App is installed appear, with a link to add more.
+
+### Security
 - Dashboard builds no longer put the signed-in user's GitHub OAuth token in the build sandbox. Public repositories are cloned without a token, private ones with a repository-scoped, read-only GitHub App installation token, and otherwise the downloaded archive is copied in (with executable bits kept).
 - Sign out ends the session on the server (migration `0016_revoked_sessions.sql`) and revokes the GitHub token at GitHub.
 - `DEPLO_ALLOWED_GITHUB_USERS` restricts sign-in to named GitHub accounts; removing an account ends its sessions.

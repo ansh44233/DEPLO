@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
+import { githubSignInMode, githubSignInScope } from "@/lib/auth/github-sign-in";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,9 @@ export async function GET() {
   const authorizationUrl = new URL("https://github.com/login/oauth/authorize");
   authorizationUrl.searchParams.set("client_id", clientId);
   authorizationUrl.searchParams.set("redirect_uri", callbackUrl);
-  authorizationUrl.searchParams.set("scope", "read:user repo");
+  // A GitHub App needs no scopes: users grant only the App's permissions, on repositories where it is installed.
+  const scope = githubSignInScope(githubSignInMode());
+  if (scope) authorizationUrl.searchParams.set("scope", scope);
   authorizationUrl.searchParams.set("state", state);
 
   const response = NextResponse.redirect(authorizationUrl);

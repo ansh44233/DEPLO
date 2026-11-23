@@ -139,7 +139,7 @@ npm run dev                     # http://localhost:3000
 | --- | :---: | --- |
 | `DEPLO_BASE_URL` | ✅ | Public URL of your DEPLO, e.g. `https://deplo.example.com` |
 | `DEPLO_SESSION_SECRET` | ✅ | Signs session cookies. 32+ random characters |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | ✅ | GitHub OAuth App for "Sign in with GitHub" |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | ✅ | "Sign in with GitHub". Use the GitHub App's client credentials (least access, expiring tokens) or a classic OAuth App |
 | `GITHUB_TOKEN_ENCRYPTION_KEY` | ✅ | Encrypts the GitHub token cookie. 32+ characters |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Project storage. A `sb_secret_…` key works |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | ✅ | Where sites are hosted. Token needs **Pages: Edit** |

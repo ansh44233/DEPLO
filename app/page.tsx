@@ -65,7 +65,7 @@ export default function Home() {
 
   const { notice, setNotice } = useNotice();
   const { readiness, readinessLoading, readinessError } = useReadiness();
-  const { signedInUser, setSignedInUser, githubAppStatus, setGithubAppStatus, githubAppStatusLoading, authLoading } = useAuth({ setNotice });
+  const { signedInUser, setSignedInUser, githubAppStatus, setGithubAppStatus, githubAppStatusLoading, authLoading, githubAccess } = useAuth({ setNotice });
 
   useEffect(() => {
     if (!signedInUser) return;
@@ -552,7 +552,7 @@ export default function Home() {
         modal={modal} setModal={setModal} setUploadError={setUploadError} setFileName={setFileName}
         signedInUser={signedInUser} projectSaving={projectSaving} readiness={readiness}
         addRepositoryPreview={addRepositoryPreview} projects={projects} startUpload={startUpload}
-        fileName={fileName} uploadError={uploadError} repo={repo}
+        fileName={fileName} uploadError={uploadError} repo={repo} githubAccess={githubAccess}
       />}
 
       {buildLogOpen && deployResult?.log && <BuildLogDialog message={deployResult.message} log={deployResult.log} setBuildLogOpen={setBuildLogOpen} setNotice={setNotice} />}
