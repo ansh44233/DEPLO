@@ -171,6 +171,7 @@ export default function Home() {
   const [githubAppStatusLoading, setGithubAppStatusLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsFetched, setProjectsFetched] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
@@ -281,7 +282,7 @@ export default function Home() {
       .catch((error) => {
         if (!cancelled) setProjectsError(error instanceof Error ? error.message : "Could not load your saved projects.");
       })
-      .finally(() => { if (!cancelled) setProjectsLoading(false); });
+      .finally(() => { if (!cancelled) { setProjectsLoading(false); setProjectsFetched(true); } });
     return () => { cancelled = true; };
   }, [signedInUser]);
 
@@ -923,15 +924,12 @@ export default function Home() {
     let dismissed = false;
     try { dismissed = window.localStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
     if (dismissed) return;
-    // On phones the card would sit on top of the hero, so it waits until the visitor has scrolled past it.
     if (!window.matchMedia("(max-width: 640px)").matches) { setCommunityHidden(false); return; }
-    const onScroll = () => {
-      if (window.scrollY < 560) return;
-      setCommunityHidden(false);
-      window.removeEventListener("scroll", onScroll);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    // On phones the compact strip arrives a moment after load, or as soon as the visitor scrolls.
+    const show = () => { setCommunityHidden(false); window.removeEventListener("scroll", show); window.clearTimeout(timer); };
+    const timer = window.setTimeout(show, 2500);
+    window.addEventListener("scroll", show, { passive: true, once: true });
+    return () => { window.clearTimeout(timer); window.removeEventListener("scroll", show); };
   }, []);
 
   useEffect(() => {
@@ -1079,7 +1077,10 @@ export default function Home() {
 
           {projectsError && <div className="banner banner-error" role="alert">{projectsError}</div>}
 
-          {!authLoading && !signedInUser && projects.length === 0 ? (
+          {authLoading ? (
+            // Nothing until we know who this is, so a refresh never flashes the wrong screen.
+            <div className="boot" aria-busy="true" aria-label="Loading" />
+          ) : !signedInUser && projects.length === 0 ? (
             <>
               <section className="hero">
                 <EmberField />
@@ -1119,7 +1120,7 @@ export default function Home() {
                 </ol>
               </section>
             </>
-          ) : projectsLoading ? (
+          ) : projectsLoading || (signedInUser && !projectsFetched) ? (
             <div className="grid tiles tiles-3">{[0, 1, 2].map((key) => <div className="tile card-skeleton" key={key} />)}</div>
           ) : filteredProjects.length === 0 ? (
             <section className={"empty" + (search ? "" : " empty-campfire")}>
