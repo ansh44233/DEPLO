@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import {
-  ArrowLeft, ExternalLink, FileArchive, FileCode2, GitBranch, Github, Loader2, Plus, RefreshCw,
-  Rocket, Search, UploadCloud, X,
+  ArrowLeft, Cpu, ExternalLink, Eye, EyeOff, FileArchive, FileCode2, GitBranch, Github, Globe, KeyRound, Loader2, Lock, Plus, RefreshCw, Rocket, RotateCcw, Search, ShieldCheck, Trash2, UploadCloud, X,
 } from "lucide-react";
 
 type RepositoryInfo = {
@@ -92,11 +91,13 @@ const initialProjects: Project[] = [];
 
 
 
-type ProjectTab = "overview" | "deployments" | "builds" | "domains" | "activity" | "settings";
+type RepoSummary = { fullName: string; name: string; owner: string; private: boolean; defaultBranch: string; description: string | null; language: string | null; updatedAt: string; url: string };
+type ProjectTab = "overview" | "deployments" | "builds" | "environment" | "domains" | "activity" | "settings";
 const PROJECT_TABS: { id: ProjectTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "deployments", label: "Deployments" },
   { id: "builds", label: "Builds" },
+  { id: "environment", label: "Environment" },
   { id: "domains", label: "Domains" },
   { id: "activity", label: "Activity" },
   { id: "settings", label: "Settings" },
@@ -175,6 +176,21 @@ export default function Home() {
   const [deployElapsed, setDeployElapsed] = useState(0);
   const [deployResult, setDeployResult] = useState<{ ok: boolean; message: string; log: string | null } | null>(null);
   const [buildLogOpen, setBuildLogOpen] = useState(false);
+  const [myRepos, setMyRepos] = useState<RepoSummary[] | null>(null);
+  const [myReposLoading, setMyReposLoading] = useState(false);
+  const [myReposError, setMyReposError] = useState("");
+  const [repoQuery, setRepoQuery] = useState("");
+  const [showUrlImport, setShowUrlImport] = useState(false);
+  const [importEnvText, setImportEnvText] = useState("");
+  const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
+  const [envLoadedFor, setEnvLoadedFor] = useState<string | null>(null);
+  const [envLoading, setEnvLoading] = useState(false);
+  const [envSaving, setEnvSaving] = useState(false);
+  const [envError, setEnvError] = useState("");
+  const [envDirty, setEnvDirty] = useState(false);
+  const [envRevealed, setEnvRevealed] = useState<Set<number>>(new Set());
+  const [envPasteOpen, setEnvPasteOpen] = useState(false);
+  const [envPasteText, setEnvPasteText] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [communityHidden, setCommunityHidden] = useState(true);
@@ -524,26 +540,27 @@ export default function Home() {
     void refreshRecoveryAttempts(selected.id, Boolean(signedInUser));
   }, [refreshRecoveryAttempts, selected.id, signedInUser]);
 
-  async function deploySelectedProject() {
-    if (!selected.id || selected.sourceType !== "github" || !signedInUser || projectDeploying) return;
+  async function deploySelectedProject(target?: { id: string }) {
+    const projectId = target?.id ?? selected.id;
+    if (!projectId || (!target && selected.sourceType !== "github") || !signedInUser || projectDeploying) return;
     setProjectDeploying(true);
     setDeployStartedAt(Date.now());
     setDeployResult(null);
     setNotice("");
     try {
-      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/deploy", { method: "POST" });
+      const response = await fetch("/api/projects/" + encodeURIComponent(projectId) + "/deploy", { method: "POST" });
       const data = await response.json().catch(() => ({})) as { url?: string; error?: string; buildLog?: string; build?: { framework: string; outputDirectory: string; log: string } | null };
       if (!response.ok) {
         const message = data.error || (response.status === 504 ? "The deployment took longer than the server allows. Try again; a second build is usually faster." : "Deployment failed with HTTP " + response.status + ".");
         setDeployResult({ ok: false, message, log: data.buildLog ?? null });
         throw new Error(message);
       }
-      setProjects((current) => current.map((project) => project.id === selected.id
+      setProjects((current) => current.map((project) => project.id === projectId
         ? { ...project, domain: data.url || project.domain, status: "Healthy", updated: "just now" }
         : project));
       setDeployResult({ ok: true, message: data.build ? "Built with " + data.build.framework + " and published." : "Published.", log: data.build?.log ?? null });
       setNotice(data.url ? "Deployed: " + data.url : "Deployment completed.");
-      await refreshDeploymentHistory(selected.id, true);
+      await refreshDeploymentHistory(projectId, true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Project deployment failed.");
     } finally {
@@ -668,10 +685,10 @@ export default function Home() {
     [projects, search]
   );
 
-  async function inspectRepository() {
+  async function inspectRepository(url: string = repoUrl) {
     setRepoLoading(true); setRepoError(""); setRepoInfo(null);
     try {
-      const response = await fetch("/api/github/repository?url=" + encodeURIComponent(repoUrl));
+      const response = await fetch("/api/github/repository?url=" + encodeURIComponent(url));
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not inspect this repository.");
       setRepoInfo({ ...data.repository, branches: data.branches });
@@ -681,7 +698,7 @@ export default function Home() {
     } finally { setRepoLoading(false); }
   }
 
-  async function addRepositoryPreview() {
+  async function addRepositoryPreview(deployNow = false) {
     if (!repoInfo) return;
     const projectName = repoInfo.fullName.split("/")[1].toLowerCase();
     const slug = projectName.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 58);
@@ -702,11 +719,26 @@ export default function Home() {
         const data = await response.json() as { project: AccountProject; error?: string };
         if (!response.ok) throw new Error(data.error || "Could not save this project.");
         const savedProject = { ...newProject, id: data.project.id, slug: data.project.slug, sourceType: data.project.source_type };
+        if (importEnvText.trim()) {
+          const envResponse = await fetch("/api/projects/" + encodeURIComponent(data.project.id) + "/env", {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dotenv: importEnvText }),
+          });
+          if (!envResponse.ok) {
+            const envData = await envResponse.json().catch(() => ({})) as { error?: string };
+            setNotice("Imported, but the environment variables were not saved: " + (envData.error || "HTTP " + envResponse.status));
+          }
+        }
         setProjects((current) => [savedProject, ...current.filter((project) => project.name !== projectName)]);
         setActiveProject(projectName);
         setActiveNav("project"); setProjectTab("overview");
-        setNotice("Imported " + projectName + ". Press Deploy to publish it.");
+        setImportEnvText("");
         setModal(null);
+        if (deployNow && readiness?.ready) {
+          setProjectSaving(false);
+          void deploySelectedProject({ id: data.project.id });
+        } else {
+          setNotice("Imported " + projectName + ". Press Deploy to publish it.");
+        }
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "Could not save this project.");
       } finally {
@@ -724,8 +756,8 @@ export default function Home() {
     if (!file) return;
     setUploadError("");
     const hostLimit = readiness?.maxUploadBytes;
-    const validationError = validateUploadSelection(file.name, file.size, kind) ??
-      (hostLimit && file.size > hostLimit ? "This DEPLO host accepts uploads up to " + Math.floor(hostLimit / 1024 / 1024) + " MB. Deploy larger sites from GitHub instead." : null);
+    // Files above the host's request limit are uploaded straight to private storage instead.
+    const validationError = validateUploadSelection(file.name, file.size, kind);
     if (validationError) {
       setUploadError(validationError);
       setFileName("");
@@ -793,15 +825,36 @@ export default function Home() {
       };
       setProjects((current) => [previewProject, ...current.filter((project) => project.id !== previewProject.id)]);
 
-      const form = new FormData();
-      form.append("file", file);
-      const uploadResponse = await fetch("/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload", {
-        method: "POST",
-        body: form,
-      });
+      const uploadEndpoint = "/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload";
+      let uploadResponse: Response;
+      if (hostLimit && file.size > hostLimit) {
+        setNotice("Uploading " + (file.size / 1024 / 1024).toFixed(1) + " MB to private storage…");
+        const linkResponse = await fetch("/api/projects/" + encodeURIComponent(savedAccountProject.id) + "/upload-url", { method: "POST" });
+        const link = await linkResponse.json().catch(() => ({})) as { uploadUrl?: string; path?: string; error?: string };
+        if (!linkResponse.ok || !link.uploadUrl || !link.path) throw new Error(link.error || "Could not start the upload.");
+        const body = new FormData();
+        body.append("cacheControl", "60");
+        body.append("", file);
+        const put = await fetch(link.uploadUrl, { method: "PUT", body });
+        if (!put.ok) throw new Error("The file could not be uploaded to storage (HTTP " + put.status + ").");
+        setNotice(kind === "zip" ? "Uploaded. Building and deploying…" : "Uploaded. Deploying…");
+        uploadResponse = await fetch(uploadEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stagedPath: link.path, fileName: file.name }),
+        });
+      } else {
+        const form = new FormData();
+        form.append("file", file);
+        uploadResponse = await fetch(uploadEndpoint, { method: "POST", body: form });
+      }
       if (uploadResponse.status === 413) throw new Error("This upload is larger than the host allows. Deploy larger sites from GitHub instead.");
-      const uploadData = await uploadResponse.json().catch(() => ({})) as { url?: string; error?: string };
-      if (!uploadResponse.ok) throw new Error(uploadData.error || "Upload deployment failed.");
+      const uploadData = await uploadResponse.json().catch(() => ({})) as { url?: string; error?: string; buildLog?: string; build?: { framework: string; log: string } | null };
+      if (!uploadResponse.ok) {
+        if (uploadData.buildLog) setDeployResult({ ok: false, message: uploadData.error || "The build failed.", log: uploadData.buildLog });
+        throw new Error(uploadData.error || "Upload deployment failed (HTTP " + uploadResponse.status + ").");
+      }
+      if (uploadData.build) setDeployResult({ ok: true, message: "Built with " + uploadData.build.framework + " and published.", log: uploadData.build.log });
 
       const deployedProject: Project = {
         ...previewProject,
@@ -835,6 +888,35 @@ export default function Home() {
 
   useEffect(() => { setDeployResult(null); }, [selected.id]);
 
+  // Load the signed-in user's repositories when the import dialog opens.
+  useEffect(() => {
+    if (!signedInUser || (modal !== "github" && modal !== "repo") || myRepos !== null || myReposLoading) return;
+    setMyReposLoading(true); setMyReposError("");
+    fetch("/api/github/repos", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({})) as { repositories?: RepoSummary[]; error?: string };
+        if (!response.ok) throw new Error(data.error || "Repositories could not be loaded.");
+        setMyRepos(data.repositories ?? []);
+      })
+      .catch((error: unknown) => { setMyReposError(error instanceof Error ? error.message : "Repositories could not be loaded."); setMyRepos([]); })
+      .finally(() => setMyReposLoading(false));
+  }, [signedInUser, modal, myRepos, myReposLoading]);
+
+  // Load environment variables when the Environment tab opens.
+  useEffect(() => {
+    if (projectTab !== "environment" || !selected.id || !signedInUser || envLoadedFor === selected.id) return;
+    const projectId = selected.id;
+    setEnvLoading(true); setEnvError(""); setEnvDirty(false); setEnvRevealed(new Set());
+    fetch("/api/projects/" + encodeURIComponent(projectId) + "/env", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({})) as { variables?: { key: string; value: string }[]; error?: string };
+        if (!response.ok) throw new Error(data.error || "Environment variables could not be loaded.");
+        setEnvVars(data.variables ?? []);
+      })
+      .catch((error: unknown) => { setEnvError(error instanceof Error ? error.message : "Environment variables could not be loaded."); setEnvVars([]); })
+      .finally(() => { setEnvLoading(false); setEnvLoadedFor(projectId); });
+  }, [projectTab, selected.id, signedInUser, envLoadedFor]);
+
   useEffect(() => {
     try { setCommunityHidden(window.localStorage.getItem("deplo:community-dismissed") === "1"); } catch { setCommunityHidden(false); }
   }, []);
@@ -852,6 +934,41 @@ export default function Home() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  async function saveEnvVars(variables = envVars) {
+    if (!selected.id) return;
+    setEnvSaving(true); setEnvError("");
+    try {
+      const response = await fetch("/api/projects/" + encodeURIComponent(selected.id) + "/env", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ variables }),
+      });
+      const data = await response.json().catch(() => ({})) as { variables?: { key: string; value: string }[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Could not save environment variables.");
+      setEnvVars(data.variables ?? []); setEnvDirty(false); setEnvRevealed(new Set());
+      setNotice("Environment saved. Redeploy to use the new values.");
+    } catch (error) {
+      setEnvError(error instanceof Error ? error.message : "Could not save environment variables.");
+    } finally { setEnvSaving(false); }
+  }
+
+  function applyPastedEnv() {
+    const parsed: { key: string; value: string }[] = [];
+    for (const raw of envPasteText.split(/\r?\n/)) {
+      if (raw.trim().startsWith("#")) continue;
+      const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(raw);
+      if (!match) continue;
+      let value = match[2].trim();
+      if (/^(["']).*\1$/.test(value)) value = value.slice(1, -1); else value = value.replace(/\s+#.*$/, "");
+      parsed.push({ key: match[1], value });
+    }
+    if (!parsed.length) { setEnvError("No KEY=value lines found."); return; }
+    setEnvVars((current) => {
+      const map = new Map(current.map((item) => [item.key, item.value]));
+      for (const item of parsed) map.set(item.key, item.value);
+      return [...map].map(([key, value]) => ({ key, value }));
+    });
+    setEnvDirty(true); setEnvPasteOpen(false); setEnvPasteText(""); setEnvError("");
+  }
 
   const isDeployed = Boolean(selected.id) && selected.domain !== "Not deployed yet" && /^https?:\/\//.test(selected.domain);
   const latestDeployment = displayDeployments[0];
@@ -932,6 +1049,13 @@ export default function Home() {
         </div>}
 
         {activeNav === "home" ? <>
+          {(signedInUser || projects.length > 0) && <div className="home-head">
+            <div>
+              <p className="kicker">Your projects</p>
+              <h1>{signedInUser ? "Welcome back, " + (signedInUser.name?.split(" ")[0] || signedInUser.login) : "Projects in this tab"}</h1>
+            </div>
+            <span className="mono muted">{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.filter((project) => /^https?:/.test(project.domain)).length} live</span>
+          </div>}
           {(signedInUser || projects.length > 0) && <div className="toolbar">
             <label className="search">
               <Search size={16} aria-hidden="true" />
@@ -943,16 +1067,45 @@ export default function Home() {
           {projectsError && <div className="banner banner-error" role="alert">{projectsError}</div>}
 
           {!authLoading && !signedInUser && projects.length === 0 ? (
-            <section className="hero-empty">
-              <h1>Deploy a site in under a minute.</h1>
-              <p>Import a GitHub repository, upload a ZIP, or drop in a single HTML file. DEPLO publishes it to a global edge network and gives you a URL.</p>
-              <div className="hero-actions">
-                <a className="btn btn-primary btn-lg" href="/api/auth/github"><Github size={17} /> Continue with GitHub</a>
-                <button className="btn btn-secondary btn-lg" onClick={() => setModal("github")}>Try without signing in</button>
-              </div>
-            </section>
+            <>
+              <section className="hero">
+                <AsciiField />
+                <img className="hero-mark" src="/deplo-mark.svg" alt="" width={56} height={56} />
+                <p className="kicker">Open source · Builds in a microVM · Yours to host</p>
+                <h1>Your code, <em>live</em> in a minute.</h1>
+                <p className="hero-lede">Pick a GitHub repo, drop a ZIP, or paste one HTML file. DEPLO installs, builds and ships it to Cloudflare&rsquo;s edge, then hands you a URL that stays put.</p>
+                <p className="hero-tagline mono">github · zip · html → build → edge</p>
+                <div className="hero-actions">
+                  <a className="btn btn-primary btn-lg" href="/api/auth/github"><Github size={16} /> Continue with GitHub</a>
+                  <button className="btn btn-secondary btn-lg" onClick={() => setModal("github")}>Try without signing in</button>
+                  <a className="btn btn-secondary btn-lg" href="https://github.com/ansh44233/DEPLO" target="_blank" rel="noreferrer">Read the source</a>
+                </div>
+              </section>
+
+              <section className="block">
+                <p className="kicker">What it does</p>
+                <div className="tiles tiles-3">
+                  {FEATURES.map((feature) => <div className="tile" key={feature.title}>
+                    <feature.icon size={20} aria-hidden="true" />
+                    <h3 className="kicker">{feature.title}</h3>
+                    <p>{feature.text}</p>
+                  </div>)}
+                </div>
+              </section>
+
+              <section className="block">
+                <p className="kicker">How a deploy runs</p>
+                <ol className="tiles tiles-4 steps">
+                  {STEPS.map((step, index) => <li className="tile" key={step.title}>
+                    <span className="step-number mono">{String(index + 1).padStart(2, "0")}</span>
+                    <h3>{step.title}</h3>
+                    <p>{step.text}</p>
+                  </li>)}
+                </ol>
+              </section>
+            </>
           ) : projectsLoading ? (
-            <div className="grid">{[0, 1, 2].map((key) => <div className="card card-skeleton" key={key} />)}</div>
+            <div className="grid tiles tiles-3">{[0, 1, 2].map((key) => <div className="tile card-skeleton" key={key} />)}</div>
           ) : filteredProjects.length === 0 ? (
             <section className="empty">
               <h2>{search ? "No projects match “" + search + "”" : "No projects yet"}</h2>
@@ -960,11 +1113,11 @@ export default function Home() {
               {!search && <button className="btn btn-primary" onClick={() => setModal("github")}><Plus size={16} /> Add new project</button>}
             </section>
           ) : (
-            <div className="grid">
+            <div className="grid tiles tiles-3">
               {filteredProjects.map((project) => {
                 const live = /^https?:\/\//.test(project.domain);
                 return (
-                  <button key={project.id ?? project.name} className="card project-card" onClick={() => openProject(project.name)}>
+                  <button key={project.id ?? project.name} className="tile project-card" onClick={() => openProject(project.name)}>
                     <div className="thumb" aria-hidden="true">
                       {live ? <iframe src={project.domain} title="" loading="lazy" sandbox="allow-scripts allow-same-origin" tabIndex={-1} /> : <span className="thumb-empty">{project.name[0]?.toUpperCase()}</span>}
                     </div>
@@ -1127,6 +1280,46 @@ export default function Home() {
                 </>}
             </section>}
 
+            {projectTab === "environment" && <section className="section">
+              <div className="section-head">
+                <div><p className="kicker">Build-time configuration</p><h2>Environment variables</h2></div>
+                <div className="row-actions">
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setEnvPasteOpen((open) => !open); setEnvError(""); }} disabled={!signedInUser || !selected.id}>Paste .env</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setEnvVars((current) => [...current, { key: "", value: "" }]); setEnvDirty(true); }} disabled={!signedInUser || !selected.id}><Plus size={14} /> Add</button>
+                </div>
+              </div>
+              {!signedInUser || !selected.id ? <Empty title="Sign in to manage variables" text="Environment variables are stored encrypted for projects saved to your account." /> : <>
+                <p className="hint">Values are encrypted at rest and handed to <span className="mono">install</span> and <span className="mono">build</span> only. A static site can&rsquo;t read them at runtime, so expose browser values with your framework&rsquo;s prefix: <span className="mono">VITE_</span>, <span className="mono">NEXT_PUBLIC_</span> or <span className="mono">REACT_APP_</span>. Redeploy after changes.</p>
+                {envPasteOpen && <div className="tile paste">
+                  <label className="field" htmlFor="env-paste">Paste the contents of a .env file</label>
+                  <textarea id="env-paste" className="mono" rows={6} value={envPasteText} onChange={(event) => setEnvPasteText(event.target.value)} placeholder={"VITE_API_URL=https://api.example.com\nSTRIPE_PUBLIC_KEY=pk_live_..."} spellCheck={false} />
+                  <div className="row-actions"><button className="btn btn-primary btn-sm" onClick={applyPastedEnv} disabled={!envPasteText.trim()}>Add these</button><button className="btn btn-ghost btn-sm" onClick={() => setEnvPasteOpen(false)}>Cancel</button></div>
+                </div>}
+                {envError && <div className="banner banner-error" role="alert">{envError}</div>}
+                {envLoading ? <div className="list"><div className="row row-skeleton" /><div className="row row-skeleton" /></div>
+                  : envVars.length === 0 ? <Empty title="No variables yet" text="Add a variable or paste a .env file. They apply to the next deploy." />
+                  : <div className="env-table" role="table" aria-label="Environment variables">
+                    <div className="env-row env-head" role="row"><span role="columnheader">Key</span><span role="columnheader">Value</span><span /></div>
+                    {envVars.map((item, index) => <div className="env-row" role="row" key={index}>
+                      <input className="mono" aria-label="Key" value={item.key} placeholder="NAME" spellCheck={false} onChange={(event) => { const key = event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"); setEnvVars((current) => current.map((entry, i) => i === index ? { ...entry, key } : entry)); setEnvDirty(true); }} />
+                      <div className="env-value">
+                        <input className="mono" aria-label={"Value of " + (item.key || "variable")} type={envRevealed.has(index) ? "text" : "password"} value={item.value} placeholder="value" spellCheck={false} autoComplete="off" onChange={(event) => { const value = event.target.value; setEnvVars((current) => current.map((entry, i) => i === index ? { ...entry, value } : entry)); setEnvDirty(true); }} />
+                        <button className="icon-btn" onClick={() => setEnvRevealed((current) => { const next = new Set(current); if (next.has(index)) next.delete(index); else next.add(index); return next; })} aria-label={envRevealed.has(index) ? "Hide value" : "Show value"}>{envRevealed.has(index) ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                      </div>
+                      <button className="icon-btn" onClick={() => { setEnvVars((current) => current.filter((_, i) => i !== index)); setEnvRevealed(new Set()); setEnvDirty(true); }} aria-label={"Remove " + (item.key || "variable")}><Trash2 size={15} /></button>
+                    </div>)}
+                  </div>}
+                <div className="save-bar">
+                  <span className="muted">{envDirty ? "Unsaved changes" : envVars.length + " saved"}</span>
+                  <div className="row-actions">
+                    {envDirty && <button className="btn btn-ghost btn-sm" onClick={() => setEnvLoadedFor(null)}>Discard</button>}
+                    <button className="btn btn-primary btn-sm" onClick={() => void saveEnvVars(envVars.filter((item) => item.key.trim()))} disabled={!envDirty || envSaving}>{envSaving ? "Saving…" : "Save"}</button>
+                    {!envDirty && isDeployed && selected.sourceType === "github" && <button className="btn btn-secondary btn-sm" onClick={() => void deploySelectedProject()} disabled={projectDeploying || !readiness?.ready}>Redeploy</button>}
+                  </div>
+                </div>
+              </>}
+            </section>}
+
             {projectTab === "domains" && <section className="section">
               <div className="section-head">
                 <h2>Domains</h2>
@@ -1248,25 +1441,64 @@ export default function Home() {
             })}
           </div>
           {modal === "github" || modal === "repo" ? <div className="dialog-body">
-            <label className="field" htmlFor="repo-url">Repository URL</label>
-            <div className="input-group">
-              <input id="repo-url" className="mono" value={repoUrl} autoFocus onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repo" />
-              <button className="btn btn-secondary" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Looking…" : "Find"}</button>
-            </div>
-            {repoError && <div className="banner banner-error" role="alert">{repoError}</div>}
             {repoInfo ? <div className="repo">
+              <button className="back" onClick={() => { setRepoInfo(null); setRepoError(""); }}><ArrowLeft size={14} /> Choose another repository</button>
               <div className="repo-top"><Github size={18} /><div><strong>{repoInfo.fullName}</strong><span className="muted">{repoInfo.description || "No description"}</span></div></div>
               <label className="field" htmlFor="repo-branch">Branch to deploy</label>
               <select id="repo-branch" value={repoBranch} onChange={(event) => setRepoBranch(event.target.value)}>{repoInfo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.name === repoInfo.defaultBranch ? " (default)" : ""}</option>)}</select>
-              <button className="btn btn-primary btn-block" onClick={() => void addRepositoryPreview()} disabled={projectSaving}>{projectSaving ? "Importing…" : "Import"}</button>
-              <p className="hint">{signedInUser ? "Imports the project. You'll deploy it from the next screen." : "You're not signed in, so this project stays in this tab only."}</p>
-            </div> : <p className="hint">Public repositories work right away. Private ones need you to sign in with GitHub.</p>}
+              {signedInUser && <details className="disclosure disclosure-tight">
+                <summary>Environment variables {importEnvText.trim() ? "(" + importEnvText.split(/\n/).filter((line) => /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=/.test(line)).length + ")" : ""}</summary>
+                <textarea className="mono" rows={5} value={importEnvText} onChange={(event) => setImportEnvText(event.target.value)} placeholder={"Paste your .env here\nVITE_API_URL=https://api.example.com"} spellCheck={false} aria-label="Environment variables" />
+                <p className="hint">Stored encrypted and used at build time. You can change them later under Environment.</p>
+              </details>}
+              {signedInUser ? <div className="dialog-actions">
+                <button className="btn btn-secondary" onClick={() => void addRepositoryPreview(false)} disabled={projectSaving}>Import only</button>
+                <button className="btn btn-primary" onClick={() => void addRepositoryPreview(true)} disabled={projectSaving || !readiness?.ready}>{projectSaving ? "Importing…" : "Deploy"}</button>
+              </div> : <button className="btn btn-primary btn-block" onClick={() => void addRepositoryPreview()} disabled={projectSaving}>Import</button>}
+              {!signedInUser && <p className="hint">You&rsquo;re not signed in, so this project stays in this tab only.</p>}
+            </div> : <>
+              {signedInUser && !showUrlImport ? <>
+                <label className="search search-dialog">
+                  <Search size={15} aria-hidden="true" />
+                  <input autoFocus value={repoQuery} onChange={(event) => setRepoQuery(event.target.value)} placeholder="Search your repositories" aria-label="Search your repositories" />
+                </label>
+                <div className="repo-list" role="list">
+                  {myReposLoading ? [0, 1, 2, 3].map((key) => <div className="repo-item row-skeleton" key={key} />)
+                    : myReposError ? <div className="banner banner-error" role="alert">{myReposError} <a href="/api/auth/github">Sign in again</a></div>
+                    : (myRepos ?? []).filter((repo) => repo.fullName.toLowerCase().includes(repoQuery.trim().toLowerCase())).slice(0, 50).map((repo) => {
+                      const imported = projects.some((project) => project.repositoryUrl === repo.url);
+                      return <div className="repo-item" role="listitem" key={repo.fullName}>
+                        <Github size={16} aria-hidden="true" />
+                        <div className="repo-item-main">
+                          <strong>{repo.name}{repo.private && <Lock size={12} aria-label="Private" />}</strong>
+                          <span className="muted mono">{repo.owner} · {repo.language ?? "—"} · {repo.updatedAt ? timeAgo(repo.updatedAt) : ""}</span>
+                        </div>
+                        <button className="btn btn-secondary btn-sm" disabled={repoLoading} onClick={() => { setRepoUrl(repo.url); void inspectRepository(repo.url); }}>{imported ? "Import again" : "Import"}</button>
+                      </div>;
+                    })}
+                  {!myReposLoading && !myReposError && (myRepos ?? []).length > 0 && (myRepos ?? []).filter((repo) => repo.fullName.toLowerCase().includes(repoQuery.trim().toLowerCase())).length === 0 && <p className="muted palette-empty">No repository matches “{repoQuery}”.</p>}
+                  {!myReposLoading && !myReposError && myRepos?.length === 0 && <p className="muted palette-empty">No repositories found on this GitHub account.</p>}
+                </div>
+                {repoLoading && <p className="hint"><Loader2 size={13} className="spin" /> Reading branches…</p>}
+                {repoError && <div className="banner banner-error" role="alert">{repoError}</div>}
+                <button className="link" onClick={() => setShowUrlImport(true)}>Import a public repository by URL instead</button>
+              </> : <>
+                <label className="field" htmlFor="repo-url">Repository URL</label>
+                <div className="input-group">
+                  <input id="repo-url" className="mono" value={repoUrl} autoFocus onChange={(event) => setRepoUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void inspectRepository(); }} placeholder="https://github.com/owner/repo" />
+                  <button className="btn btn-secondary" onClick={() => void inspectRepository()} disabled={repoLoading || !repoUrl.trim()}>{repoLoading ? "Looking…" : "Find"}</button>
+                </div>
+                {repoError && <div className="banner banner-error" role="alert">{repoError}</div>}
+                {signedInUser ? <button className="link" onClick={() => setShowUrlImport(false)}>Back to your repositories</button>
+                  : <p className="hint"><a href="/api/auth/github">Sign in with GitHub</a> to pick from your own repositories, including private ones.</p>}
+              </>}
+            </>}
           </div> : <div className="dialog-body">
             <label className={"dropzone " + (projectSaving ? "dropzone-busy" : "")}>
               <input type="file" disabled={projectSaving} accept={modal === "upload" ? ".zip,application/zip" : ".html,.htm,text/html"} onChange={(event) => void startUpload(event.target.files?.[0], modal === "upload" ? "zip" : "html")} />
               {projectSaving ? <Loader2 size={22} className="spin" /> : <UploadCloud size={22} />}
               <strong>{projectSaving ? "Uploading and deploying " + fileName : fileName || (modal === "upload" ? "Choose a .zip file" : "Choose an .html file")}</strong>
-              <span className="muted">{modal === "upload" ? "Needs index.html at the top level. Up to " + Math.floor((readiness?.maxUploadBytes ?? 25 * 1024 * 1024) / 1024 / 1024) + " MB." : "A complete HTML page. Up to 2 MB."}</span>
+              <span className="muted">{modal === "upload" ? "A built site, or a Vite / React / Next (export) project we build for you. A single wrapping folder is fine. Up to 25 MB." : "A complete HTML page. Up to 2 MB."}</span>
             </label>
             {uploadError && <div className="banner banner-error" role="alert">{uploadError}</div>}
             {!signedInUser && <p className="hint"><a href="/api/auth/github">Sign in with GitHub</a> to deploy uploads.</p>}
@@ -1335,6 +1567,41 @@ export default function Home() {
 }
 
 type DisplayDeployment = { id: string; message: string; commitSha: string | null; branch: string; time: string; status: string; url: string; canRollback: boolean; project: string };
+
+const FEATURES = [
+  { icon: GitBranch, title: "Git, ZIP or HTML", text: "Pick a repo from your GitHub, drop a ZIP, or paste a single page. Private repos work once you sign in." },
+  { icon: Cpu, title: "Real builds", text: "Vite, React, CRA and static Next.js build in a throwaway Firecracker microVM. Your code never shares a box with ours." },
+  { icon: KeyRound, title: "Encrypted env", text: "Per-project variables, sealed with AES-256-GCM and handed only to the build. Paste a whole .env at once." },
+  { icon: Globe, title: "Edge hosting", text: "Every site gets its own Cloudflare Pages project and a URL that never changes between deploys." },
+  { icon: RotateCcw, title: "Instant rollback", text: "Every production deploy is kept. Switch back in one click; nothing is rebuilt." },
+  { icon: ShieldCheck, title: "Safe by default", text: "Zip-slip, symlink and archive-bomb checks. .env files and keys are stripped before anything goes public." },
+];
+
+const STEPS = [
+  { title: "Fetch", text: "Clone the branch, or unpack your upload into a private workspace." },
+  { title: "Decide", text: "Plain HTML ships as-is. Framework projects get a build plan." },
+  { title: "Build", text: "Install and build inside an isolated microVM with your variables." },
+  { title: "Ship", text: "Hash and upload only changed files, then go live on the edge." },
+];
+
+/** A decorative ASCII field (rings around the mark), computed once from a fixed formula. */
+function AsciiField() {
+  const ramp = " .:-=+*xX#";
+  const rows: string[] = [];
+  for (let y = 0; y < 22; y += 1) {
+    let line = "";
+    for (let x = 0; x < 132; x += 1) {
+      const dx = (x - 66) / 66;
+      const dy = (y - 9) / 9;
+      const r = Math.sqrt(dx * dx * 1.0 + dy * dy * 0.9);
+      const wave = Math.sin(r * 11 - Math.atan2(dy, dx) * 2) * 0.5 + 0.5;
+      const fade = Math.max(0, 1 - Math.abs(r - 0.62) * 2.2) * (r < 0.18 ? 0 : 1);
+      line += ramp[Math.min(ramp.length - 1, Math.floor(wave * fade * ramp.length))];
+    }
+    rows.push(line);
+  }
+  return <pre className="ascii" aria-hidden="true">{rows.join("\n")}</pre>;
+}
 
 function cap(value: string): string {
   return value ? value[0].toUpperCase() + value.slice(1) : value;

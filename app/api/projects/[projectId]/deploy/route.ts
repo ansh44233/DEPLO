@@ -11,6 +11,7 @@ import { extractZipSafely } from "@/lib/uploads/extract-zip";
 import { deployStaticDirectory, isValidPagesBranch, readCloudflarePagesCredentials } from "@/lib/deploy/cloudflare-pages";
 import { ensureCloudflarePagesProject, getAccountPagesTarget } from "@/lib/deploy/cloudflare-projects";
 import { inspectStaticDirectory, pruneUnpublishableFiles } from "@/lib/deploy/static-assets";
+import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 
 export const runtime = "nodejs";
@@ -143,6 +144,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           decision,
           hasNpmLock: await hasPackageLock(projectRoot),
           destination: outputRoot,
+          buildEnv: await loadBuildEnv(user.id, project.id),
         });
         build = { framework: decision.plan.framework, outputDirectory: built.outputDirectory, log: built.log };
       } catch (error) {
