@@ -4,6 +4,16 @@ All notable changes to DEPLO are documented here.
 
 ## Unreleased
 
+### Security
+- Dashboard builds no longer put the signed-in user's GitHub OAuth token in the build sandbox. Public repositories are cloned without a token, private ones with a repository-scoped, read-only GitHub App installation token, and otherwise the downloaded archive is copied in (with executable bits kept).
+- Sign out ends the session on the server (migration `0016_revoked_sessions.sql`) and revokes the GitHub token at GitHub.
+- `DEPLO_ALLOWED_GITHUB_USERS` restricts sign-in to named GitHub accounts; removing an account ends its sessions.
+- Per-account deploy rate limit (`DEPLO_DEPLOYS_PER_HOUR`, default 30; migration `0017_deploy_rate_limits.sql`).
+- Middleware adds a Content Security Policy, HSTS, `X-Frame-Options`, referrer and permissions policies to every response, and refuses cross-site state-changing API requests.
+
+### Deployment
+- Dashboard deploys resolve the branch to one commit first, so the archive, the build and the result always match, and the response reports `commitSha`.
+
 ### Performance
 - Dependency cache for framework builds: after a successful build DEPLO snapshots the Vercel Sandbox with only `node_modules` kept, and the next build whose dependencies and lockfiles are unchanged starts from that snapshot and skips the install step. Monorepos are not cached, pull request previews read the cache but never write it, and a build that fails on the cache is retried once from a clean install. Requires migration `0015_project_build_caches.sql`; set `DEPLO_DISABLE_BUILD_CACHE=1` to turn it off.
 - Cloudflare Pages uploads run four requests at a time over smaller buckets instead of one large request after another.

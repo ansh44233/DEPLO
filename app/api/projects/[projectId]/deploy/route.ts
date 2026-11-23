@@ -15,6 +15,10 @@ import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
 import { dependencyCacheKey } from "@/lib/deploy/build-cache";
 import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
+import { chooseSandboxSource } from "@/lib/github/sandbox-source";
+import { resolveBranchHead } from "@/lib/github/branch-head";
+
+import { claimDeploySlot, rateLimitMessage } from "@/lib/db/supabase-deploy-rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,6 +97,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("Project storage is temporarily unavailable.", 502);
   }
   if (!project) return jsonError("Project not found in your account.", 404);
+  const slot = await claimDeploySlot(user.id);
+  if (!slot.allowed) {
+    return NextResponse.json({ error: rateLimitMessage(slot) }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(slot.retryAfterSeconds) } });
+  }
   if (project.source_type !== "github" || !project.repository_url || !project.branch) {
     return jsonError("This project source cannot be deployed through GitHub import yet.", 422);
   }
@@ -117,10 +125,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const archivePath = join(workRoot, "repository.zip");
   const extractedRoot = join(workRoot, "extracted");
   try {
+    // Pin the deploy to one commit: the archive, the build and the result all refer to it.
+    const commitSha = await resolveBranchHead({ owner: repository.owner, repository: repository.repository, branch: project.branch, token: accessToken });
     const archiveUrl = "https://api.github.com/repos/" +
       encodeURIComponent(repository.owner) + "/" +
       encodeURIComponent(repository.repository) +
-      "/zipball/" + project.branch.split("/").map(encodeURIComponent).join("/");
+      "/zipball/" + (commitSha ?? project.branch.split("/").map(encodeURIComponent).join("/"));
     const archiveBytes = await downloadArchive(archiveUrl, archivePath, accessToken);
     await extractZipSafely(archivePath, extractedRoot);
 
@@ -142,10 +152,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const buildEnv = await loadBuildEnv(user.id, project.id);
         const cacheKey = await dependencyCacheKey(projectRoot, decision.plan.packageManager, Object.keys(buildEnv));
         const cacheStore = cacheKey ? supabaseBuildCache(user.id, project.id) : null;
+        // The user's own token stays on the server; the sandbox gets no token, a repository-scoped one, or a copy.
+        const source = await chooseSandboxSource({ owner: repository.owner, repository: repository.repository, ownerGithubId: user.id, userToken: accessToken });
         const built = await buildInSandbox({
-          repositoryUrl: "https://github.com/" + repository.owner + "/" + repository.repository + ".git",
-          revision: project.branch,
-          accessToken,
+          ...(source.kind === "clone"
+            ? { repositoryUrl: source.repositoryUrl, revision: commitSha ?? project.branch, accessToken: source.accessToken }
+            : { checkoutRoot: projectRoot, accessToken: null }),
           decision,
           hasNpmLock: await hasPackageLock(projectRoot),
           destination: outputRoot,
@@ -189,6 +201,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       url: productionUrl,
       deploymentUrl: deployment.url,
       archiveBytes,
+      commitSha,
       fileCount: assets.fileCount,
       totalBytes: assets.totalBytes,
       build,

@@ -41,6 +41,8 @@ Generate every secret separately, for example with `openssl rand -base64 48`.
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | yes | Pages Edit token |
 | `CRON_SECRET` | yes | ≥ 32 characters. Vercel sends it to cron routes automatically |
+| `DEPLO_ALLOWED_GITHUB_USERS` | recommended | Comma-separated GitHub logins or user IDs allowed to sign in. Unset lets any GitHub account deploy on your Cloudflare account and Sandbox quota |
+| `DEPLO_DEPLOYS_PER_HOUR` | no | Deploys per account per hour (default 30, `0` turns the limit off). Needs migration 0017 |
 | `DEPLO_GITHUB_WEBHOOK_SECRET` | for push deploys | Must match the GitHub webhook secret |
 | `DEPLO_WEBHOOK_WORKER_SECRET` | for push deploys | ≥ 32 characters |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` | for private repos | Escaped `\n` in the key is supported |

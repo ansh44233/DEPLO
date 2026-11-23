@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSessionToken, safeEqual } from "@/lib/auth/session";
 import { encryptGitHubToken } from "@/lib/auth/github-token";
-import { exchangeGitHubCode } from "@/lib/auth/github-oauth";
+import { exchangeGitHubCode, revokeGitHubToken } from "@/lib/auth/github-oauth";
+import { isAllowedGitHubUser } from "@/lib/auth/access-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ function callbackUrl(): string | null {
   }
 }
 
-function finish(request: NextRequest, result: "error" | "success", sessionToken?: string, encryptedGitHubToken?: string) {
+function finish(request: NextRequest, result: "error" | "success" | "denied", sessionToken?: string, encryptedGitHubToken?: string) {
   let destination: URL;
   try {
     destination = new URL("/", process.env.DEPLO_BASE_URL || request.nextUrl.origin);
@@ -101,6 +102,12 @@ export async function GET(request: NextRequest) {
       !Number.isSafeInteger(profile.id) || (profile.id ?? 0) <= 0 ||
       typeof profile.login !== "string" || !/^[a-zA-Z0-9-]{1,39}$/.test(profile.login)
     ) return finish(request, "error");
+
+    if (!isAllowedGitHubUser({ id: profile.id as number, login: profile.login })) {
+      console.error("[deplo] GitHub sign-in refused: account is not on DEPLO_ALLOWED_GITHUB_USERS");
+      await revokeGitHubToken({ clientId, clientSecret, accessToken: tokenData.access_token });
+      return finish(request, "denied");
+    }
 
     const avatarUrl = typeof profile.avatar_url === "string" &&
       profile.avatar_url.startsWith("https://") ? profile.avatar_url : null;

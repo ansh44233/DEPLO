@@ -16,6 +16,8 @@ import { dependencyCacheKey } from "@/lib/deploy/build-cache";
 import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
 import { hasHtmlDocument, hasZipSignature, MAX_HTML_BYTES, MAX_ZIP_BYTES, validateUploadSelection } from "@/lib/uploads/validate-upload";
 
+import { claimDeploySlot, rateLimitMessage } from "@/lib/db/supabase-deploy-rate-limit";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -49,6 +51,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("Project storage is temporarily unavailable.", 502);
   }
   if (!project) return jsonError("Project not found in your account.", 404);
+  const slot = await claimDeploySlot(user.id);
+  if (!slot.allowed) {
+    return NextResponse.json({ error: rateLimitMessage(slot) }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(slot.retryAfterSeconds) } });
+  }
   if (project.source_type !== "zip" && project.source_type !== "html") {
     return jsonError("Only ZIP and standalone HTML projects can use this upload endpoint.", 422);
   }

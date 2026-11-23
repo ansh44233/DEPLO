@@ -1,4 +1,4 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { detectFrameworkBuildPlan, type FrameworkBuildPlan } from "./framework-detection";
 import { extractTar } from "./tar-extract";
@@ -115,11 +115,22 @@ function redact(text: string, secret: string | null, extra: string[] = []): stri
 }
 
 export type SandboxBuildInput = {
-  /** Git source. Omit both and pass filesRoot to build uploaded files instead. */
+  /**
+   * Git source. `accessToken` is the clone credential and must be scoped to this
+   * one repository (a GitHub App installation token), because the sandbox runs
+   * the repository's own build scripts. Never pass a user's OAuth token.
+   * Omit both and pass filesRoot or checkoutRoot to copy local files instead.
+   */
   repositoryUrl?: string;
   revision?: string;
   /** Local directory whose files are copied into the sandbox (for ZIP uploads). */
   filesRoot?: string;
+  /**
+   * Local checkout of the repository, copied in when there is no repositoryUrl.
+   * Used for private repositories without a repository-scoped token, so the
+   * user's own GitHub token never enters the sandbox.
+   */
+  checkoutRoot?: string;
   accessToken: string | null;
   decision: Extract<SiteDecision, { kind: "build" }>;
   hasNpmLock: boolean;
@@ -226,7 +237,8 @@ async function runSandboxBuild(input: SandboxBuildInput, attempt: { restored: bo
   };
 
   try {
-    const copyRoot = restored ? input.cache!.sourceRoot : input.filesRoot;
+    // Source comes from a git clone, or is copied in: uploads, a local checkout, or a restored cache.
+    const copyRoot = restored ? input.cache!.sourceRoot : input.filesRoot ?? (input.repositoryUrl ? undefined : input.checkoutRoot);
     if (restored) {
       const reset = await run("clear previous source", KEEP_ONLY_NODE_MODULES, 30_000);
       if (reset.exitCode !== 0) throw new SandboxBuildError("The cached build folder could not be cleared.", log.join("\n"), "build_failed");
@@ -235,8 +247,17 @@ async function runSandboxBuild(input: SandboxBuildInput, attempt: { restored: bo
       if (!box.writeFiles) throw new SandboxBuildError("This sandbox cannot receive uploaded files.", "", "sandbox_unavailable");
       // ZIP uploads drop stale dist/, build/ and out/ folders; a restored checkout keeps them, as a fresh clone would.
       const files = await collectSourceFiles(copyRoot, input.filesRoot ? UPLOAD_SKIP : CHECKOUT_SKIP);
-      for (let index = 0; index < files.length; index += 200) await box.writeFiles(files.slice(index, index + 200));
-      log.push("Copied " + files.length + (restored ? " source" : " uploaded") + " files into the sandbox.");
+      for (let index = 0; index < files.length; index += 200) {
+        await box.writeFiles(files.slice(index, index + 200).map(({ path, content }) => ({ path, content })));
+      }
+      // writeFiles does not carry file modes; restore executable bits (for scripts the build runs directly).
+      const executables = files.filter((file) => file.executable).map((file) => file.path);
+      if (executables.length) {
+        await box.writeFiles([{ path: EXECUTABLES_LIST, content: Buffer.from(executables.join("\0") + "\0") }]);
+        const modes = await run("restore executable bits", "xargs -0 chmod +x -- < " + EXECUTABLES_LIST + " && rm -f " + EXECUTABLES_LIST, 30_000);
+        if (modes.exitCode !== 0) throw new SandboxBuildError("Executable files could not be prepared in the sandbox.", log.join("\n"), "build_failed");
+      }
+      log.push("Copied " + files.length + (input.filesRoot ? " uploaded" : " source") + " files into the sandbox.");
     }
     const { plan } = input.decision;
     const freshInstall = installCommand(plan.packageManager);
@@ -301,19 +322,25 @@ const CACHE_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Time a snapshot needs; skip saving the cache when the request is close to its limit. */
 const SNAPSHOT_TIME_RESERVE_MS = 45_000;
 
+const EXECUTABLES_LIST = ".deplo-executables";
 const UPLOAD_SKIP = new Set(["node_modules", ".git", "__MACOSX", ".DS_Store", ".next", "dist", "build", "out"]);
 const CHECKOUT_SKIP = new Set(["node_modules", ".git", "__MACOSX", ".DS_Store"]);
 
 /** Reads an uploaded project's source files (not dependencies or old build output) for the sandbox. */
-export async function collectSourceFiles(root: string, skip: ReadonlySet<string> = UPLOAD_SKIP): Promise<{ path: string; content: Buffer }[]> {
-  const files: { path: string; content: Buffer }[] = [];
+export type SourceFile = { path: string; content: Buffer; executable: boolean };
+
+export async function collectSourceFiles(root: string, skip: ReadonlySet<string> = UPLOAD_SKIP): Promise<SourceFile[]> {
+  const files: SourceFile[] = [];
   const walk = async (directory: string, prefix: string) => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (skip.has(entry.name) || entry.isSymbolicLink()) continue;
       const full = join(directory, entry.name);
       const relative = prefix ? prefix + "/" + entry.name : entry.name;
       if (entry.isDirectory()) await walk(full, relative);
-      else if (entry.isFile()) files.push({ path: relative, content: await readFile(full) });
+      else if (entry.isFile()) {
+        const mode = (await stat(full)).mode;
+        files.push({ path: relative, content: await readFile(full), executable: (mode & 0o100) !== 0 });
+      }
     }
   };
   await walk(root, "");

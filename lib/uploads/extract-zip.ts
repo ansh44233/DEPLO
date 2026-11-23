@@ -105,7 +105,8 @@ export async function extractZipSafely(
       await pipeline(
         input,
         meter,
-        createWriteStream(destination, { flags: "wx", mode: 0o600 }),
+        // Keep only the executable bit (for build scripts); never setuid, group or world bits.
+        createWriteStream(destination, { flags: "wx", mode: (((entry.externalFileAttributes >>> 16) & 0o111) !== 0) ? 0o700 : 0o600 }),
       );
 
       if (entryBytes !== entry.uncompressedSize) {
