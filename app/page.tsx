@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DeployDemo, EmberField, Sparks, useSpotlight } from "./fx";
 import { hasZipSignature, validateUploadSelection } from "@/lib/uploads/validate-upload";
 import {
   ArrowLeft, Cpu, ExternalLink, Eye, EyeOff, FileArchive, FileCode2, GitBranch, Github, Globe, KeyRound, Loader2, Lock, Plus, RefreshCw, Rocket, RotateCcw, Search, ShieldCheck, Trash2, UploadCloud, X,
@@ -129,6 +130,7 @@ function hostOf(url: string): string {
 }
 
 export default function Home() {
+  useSpotlight();
   const [activeProject, setActiveProject] = useState("");
   const [activeNav, setActiveNav] = useState<"home" | "project">("home");
   const [projectTab, setProjectTab] = useState<ProjectTab>("overview");
@@ -1069,7 +1071,8 @@ export default function Home() {
           {!authLoading && !signedInUser && projects.length === 0 ? (
             <>
               <section className="hero">
-                <AsciiField />
+                <EmberField />
+                <Sparks />
                 <img className="hero-mark" src="/deplo-mark.svg" alt="" width={56} height={56} />
                 <p className="kicker">Open source · Builds in a microVM · Yours to host</p>
                 <h1>Your code, <em>live</em> in a minute.</h1>
@@ -1080,6 +1083,7 @@ export default function Home() {
                   <button className="btn btn-secondary btn-lg" onClick={() => setModal("github")}>Try without signing in</button>
                   <a className="btn btn-secondary btn-lg" href="https://github.com/ansh44233/DEPLO" target="_blank" rel="noreferrer">Read the source</a>
                 </div>
+                <DeployDemo />
               </section>
 
               <section className="block">
@@ -1107,8 +1111,9 @@ export default function Home() {
           ) : projectsLoading ? (
             <div className="grid tiles tiles-3">{[0, 1, 2].map((key) => <div className="tile card-skeleton" key={key} />)}</div>
           ) : filteredProjects.length === 0 ? (
-            <section className="empty">
-              <h2>{search ? "No projects match “" + search + "”" : "No projects yet"}</h2>
+            <section className={"empty" + (search ? "" : " empty-campfire")}>
+              {!search && <img src="/community-campfire.webp" alt="" width={618} height={370} />}
+              <h2>{search ? "No projects match “" + search + "”" : "Pull up a log. Your first deploy is waiting."}</h2>
               <p>{search ? "Try a different name, or clear the search." : "Import a repository or upload a site to create your first project."}</p>
               {!search && <button className="btn btn-primary" onClick={() => setModal("github")}><Plus size={16} /> Add new project</button>}
             </section>
@@ -1537,12 +1542,11 @@ export default function Home() {
 
       {!communityHidden && activeNav === "home" && <aside className="community" aria-label="DEPLO is open source">
         <button className="icon-btn community-close" onClick={dismissCommunity} aria-label="Dismiss"><X size={15} /></button>
-        <div className="community-art" aria-hidden="true">
-          <img src="/deplo-mark.svg" alt="" width={28} height={28} />
-          <span className="community-trail" />
+        <div className="community-art">
+          <img src="/community-campfire.webp" alt="Three small friends roasting marshmallows around a campfire" width={618} height={370} loading="lazy" />
         </div>
-        <strong>Built in the open.</strong>
-        <p className="muted">DEPLO is open source. Star the repo, report a bug, or send a pull request.</p>
+        <strong>Pull up a log.</strong>
+        <p className="muted">There&rsquo;s a seat by the fire. Star DEPLO, report a bug, or send a pull request.</p>
         <div className="community-actions">
           <a className="btn btn-secondary btn-sm" href="https://github.com/ansh44233/DEPLO" target="_blank" rel="noreferrer" onClick={dismissCommunity}><Github size={14} /> Star</a>
           <a className="btn btn-secondary btn-sm" href="https://github.com/ansh44233/DEPLO/issues/new" target="_blank" rel="noreferrer">Report a bug</a>
@@ -1583,25 +1587,6 @@ const STEPS = [
   { title: "Build", text: "Install and build inside an isolated microVM with your variables." },
   { title: "Ship", text: "Hash and upload only changed files, then go live on the edge." },
 ];
-
-/** A decorative ASCII field (rings around the mark), computed once from a fixed formula. */
-function AsciiField() {
-  const ramp = " .:-=+*xX#";
-  const rows: string[] = [];
-  for (let y = 0; y < 22; y += 1) {
-    let line = "";
-    for (let x = 0; x < 132; x += 1) {
-      const dx = (x - 66) / 66;
-      const dy = (y - 9) / 9;
-      const r = Math.sqrt(dx * dx * 1.0 + dy * dy * 0.9);
-      const wave = Math.sin(r * 11 - Math.atan2(dy, dx) * 2) * 0.5 + 0.5;
-      const fade = Math.max(0, 1 - Math.abs(r - 0.62) * 2.2) * (r < 0.18 ? 0 : 1);
-      line += ramp[Math.min(ramp.length - 1, Math.floor(wave * fade * ramp.length))];
-    }
-    rows.push(line);
-  }
-  return <pre className="ascii" aria-hidden="true">{rows.join("\n")}</pre>;
-}
 
 function cap(value: string): string {
   return value ? value[0].toUpperCase() + value.slice(1) : value;

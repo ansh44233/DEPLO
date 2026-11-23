@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description: "Deploy GitHub repositories, ZIP uploads and HTML files to the edge.",
 };
 
-export const viewport: Viewport = { themeColor: "#0a0a0a", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#090a17", colorScheme: "dark" };
 
 export default function RootLayout({
   children,
