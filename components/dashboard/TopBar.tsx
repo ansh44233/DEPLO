@@ -15,7 +15,7 @@ export function TopBar({ goHome, authLoading, signedInUser, activeNav, selected,
             {signedInUser.avatarUrl ? <img className="avatar" src={signedInUser.avatarUrl} alt="" /> : <span className="avatar avatar-fallback">{signedInUser.login[0]?.toUpperCase()}</span>}
             {signedInUser.login}
           </button>
-        ) : <span className="crumb muted">Guest</span>}
+        ) : <span className="crumb crumb-guest muted">Guest</span>}
         {activeNav === "project" && selected.id !== undefined && <>
           <span className="crumb-sep" aria-hidden="true">/</span>
           <span className="crumb crumb-current">{selected.name}</span>
@@ -35,7 +35,7 @@ export function TopBar({ goHome, authLoading, signedInUser, activeNav, selected,
         </a>}
         {authLoading ? null : signedInUser
           ? <button className="btn btn-ghost btn-sm" onClick={() => void signOut()}>Sign out</button>
-          : <a className="btn btn-primary btn-sm" href="/api/auth/github"><Github size={15} /> Sign in with GitHub</a>}
+          : <a className="btn btn-primary btn-sm" href="/api/auth/github"><Github size={15} /><span className="label-long">Sign in with GitHub</span><span className="label-short">Sign in</span></a>}
       </div>
     </header>
   );

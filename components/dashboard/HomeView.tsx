@@ -23,13 +23,17 @@ export function HomeView({ signedInUser, projects, search, setSearch, setModal, 
 
       {projectsError && <div className="banner banner-error" role="alert">{projectsError}</div>}
 
-      {!authLoading && !signedInUser && projects.length === 0 ? (
+      {authLoading ? (
+        // Nothing until we know who this is, so a refresh never flashes the wrong screen.
+        <div className="boot" aria-busy="true" aria-label="Loading" />
+      ) : !signedInUser && projects.length === 0 ? (
           <Landing setModal={setModal} />
       ) : projectsLoading ? (
         <div className="grid tiles tiles-3">{[0, 1, 2].map((key) => <div className="tile card-skeleton" key={key} />)}</div>
       ) : filteredProjects.length === 0 ? (
-        <section className="empty">
-          <h2>{search ? "No projects match “" + search + "”" : "No projects yet"}</h2>
+        <section className={"empty" + (search ? "" : " empty-campfire")}>
+          {!search && <img src="/community-campfire.webp" alt="" width={618} height={370} />}
+          <h2>{search ? "No projects match “" + search + "”" : "Pull up a log. Your first deploy is waiting."}</h2>
           <p>{search ? "Try a different name, or clear the search." : "Import a repository or upload a site to create your first project."}</p>
           {!search && <button className="btn btn-primary" onClick={() => setModal("github")}><Plus size={16} /> Add new project</button>}
         </section>

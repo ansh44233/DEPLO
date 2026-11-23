@@ -24,6 +24,11 @@ jobs:
         run: npm install
       - name: Validate migration inventory
         run: npm run check:migrations
+      - name: Set up Rust for the BLAKE3 WebAssembly hasher
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build and test the Rust hasher
+        # Writes lib/deploy/blake3.wasm so the unit tests below check it against the JavaScript implementation.
+        run: ./native/blake3-wasm/build.sh
       - name: Unit tests
         run: npm run test
       - name: Typecheck

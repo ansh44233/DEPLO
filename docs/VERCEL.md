@@ -14,6 +14,8 @@ DEPLO's dashboard and API are a standard Next.js app and run on Vercel Functions
 
 **Framework builds** (Vite, React, Create React App, static-export Next.js) run in [Vercel Sandbox](https://vercel.com/docs/sandbox). On Vercel the SDK authenticates automatically with OIDC, so nothing extra is needed; the Hobby plan includes a free monthly quota (5 active-CPU hours). Deploy routes allow up to 300 seconds, which fits typical small and medium builds. The older self-hosted Firecracker runner in `services/build-runner` remains optional.
 
+**Build cache.** After a successful build, DEPLO saves a Sandbox snapshot that contains only the project's `node_modules` (no source, `.git` or build caches) and records it in `project_build_caches` (migration 0015). When the next build's dependencies and lockfiles match, it starts from that snapshot and skips the install, which is usually the slowest step. Snapshots expire 7 days after their last use and count toward your Sandbox storage. Set `DEPLO_DISABLE_BUILD_CACHE=1` to turn the cache off.
+
 ## 1. Prepare external services
 
 1. **Supabase**: create a project and run every file in `supabase/migrations/` in order (see [migration runbook](SUPABASE_MIGRATION_RUNBOOK.md)).

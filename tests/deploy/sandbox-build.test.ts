@@ -78,8 +78,8 @@ test("decides how to publish each kind of repository", async () => {
 });
 
 test("picks install commands per package manager", () => {
-  assert.equal(installCommand("npm", true), "npm ci --no-audit --no-fund");
-  assert.equal(installCommand("npm", false), "npm install --no-audit --no-fund");
+  // npm picks ci or install inside the sandbox, based on the lockfile that is actually there.
+  assert.match(installCommand("npm"), /^if \[ -f package-lock\.json \] \|\| \[ -f npm-shrinkwrap\.json \]; then npm ci .*; else npm install .*; fi$/);
   assert.match(installCommand("pnpm", false), /npm install -g pnpm.*pnpm install/);
   assert.match(installCommand("bun", false), /bun install$/);
 });
@@ -129,7 +129,8 @@ test("builds in the sandbox and extracts the output", async () => {
     assert.equal(await readFile(join(dest, "index.html"), "utf8"), "<!doctype html>built");
     assert.deepEqual(fake.created?.source, { type: "git", url: "https://github.com/o/r.git", depth: 1, revision: "main", username: "x-access-token", password: "ghs_secret" });
     assert.equal(fake.created?.persistent, false);
-    assert.deepEqual(fake.calls.map((call) => call.script.split(" ")[0]), ["npm", "npm", "for"]);
+    assert.deepEqual(fake.calls.map((call) => call.script.split(" ")[0]), ["if", "npm", "for"]);
+    assert.match(fake.calls[0].script, /package\.json was not found/);
     assert.equal(fake.calls.every((call) => !JSON.stringify(call.env).includes("SUPABASE")), true);
     assert.equal(result.log.includes("ghs_secret"), false, "tokens are redacted from build logs");
     assert.equal(fake.stopped, true);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSpotlight } from "./fx";
 import type { AccountProject, Project, ProjectTab, Modal } from "@/lib/dashboard/types";
 import { timeAgo, stableSiteUrl, slugify } from "@/lib/dashboard/format";
 import { initialProjects } from "@/lib/dashboard/constants";
@@ -36,6 +37,7 @@ import { Toast } from "@/components/dashboard/Toast";
 import { TopBar } from "@/components/dashboard/TopBar";
 
 export default function Home() {
+  useSpotlight();
   const [activeProject, setActiveProject] = useState("");
   const [activeNav, setActiveNav] = useState<"home" | "project">("home");
   const [projectTab, setProjectTab] = useState<ProjectTab>("overview");
@@ -45,6 +47,7 @@ export default function Home() {
   const [fileName, setFileName] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsFetched, setProjectsFetched] = useState(false);
   const [projectsError, setProjectsError] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeploying, setProjectDeploying] = useState(false);
@@ -99,7 +102,7 @@ export default function Home() {
       .catch((error) => {
         if (!cancelled) setProjectsError(error instanceof Error ? error.message : "Could not load your saved projects.");
       })
-      .finally(() => { if (!cancelled) setProjectsLoading(false); });
+      .finally(() => { if (!cancelled) { setProjectsLoading(false); setProjectsFetched(true); } });
     return () => { cancelled = true; };
   }, [signedInUser]);
 
@@ -441,7 +444,15 @@ export default function Home() {
   useEffect(() => { setDeployResult(null); }, [selected.id]);
 
   useEffect(() => {
-    try { setCommunityHidden(window.localStorage.getItem("deplo:community-dismissed") === "1"); } catch { setCommunityHidden(false); }
+    let dismissed = false;
+    try { dismissed = window.localStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
+    if (dismissed) return;
+    if (!window.matchMedia("(max-width: 640px)").matches) { setCommunityHidden(false); return; }
+    // On phones the compact strip arrives a moment after load, or as soon as the visitor scrolls.
+    const show = () => { setCommunityHidden(false); window.removeEventListener("scroll", show); window.clearTimeout(timer); };
+    const timer = window.setTimeout(show, 2500);
+    window.addEventListener("scroll", show, { passive: true, once: true });
+    return () => { window.clearTimeout(timer); window.removeEventListener("scroll", show); };
   }, []);
 
   useEffect(() => {
@@ -495,7 +506,7 @@ export default function Home() {
         {activeNav === "home" ? (
           <HomeView
             signedInUser={signedInUser} projects={projects} search={search} setSearch={setSearch} setModal={setModal}
-            projectsError={projectsError} authLoading={authLoading} projectsLoading={projectsLoading}
+            projectsError={projectsError} authLoading={authLoading} projectsLoading={projectsLoading || (Boolean(signedInUser) && !projectsFetched)}
             filteredProjects={filteredProjects} openProject={openProject}
           />
         ) : (

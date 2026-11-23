@@ -14,6 +14,8 @@ import { buildEnvForDelivery, previewBranchFor, previewUrlFor } from "@/lib/gith
 import { repositoryNameOf } from "@/lib/github/repository-name";
 import { loadBuildEnv } from "@/lib/db/supabase-env-vars";
 import { buildInSandbox, decideSite, hasPackageLock, sandboxBuildsAvailable, SandboxBuildError } from "@/lib/deploy/sandbox-build";
+import { dependencyCacheKey } from "@/lib/deploy/build-cache";
+import { supabaseBuildCache } from "@/lib/db/supabase-build-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,6 +231,10 @@ async function processNextDelivery(): Promise<NextResponse> {
           if (!sandboxBuildsAvailable()) throw new Error("build_unavailable");
           publishRoot = join(workRoot, "output");
           try {
+            const buildEnv = await buildEnvForDelivery(pullRequestNumber, () => loadBuildEnv(project.owner_github_id, project.id));
+            const cacheKey = await dependencyCacheKey(siteRoot, decision.plan.packageManager, Object.keys(buildEnv));
+            // Pull request previews run unreviewed code, so they may read the cache but never replace it.
+            const cacheStore = cacheKey ? supabaseBuildCache(project.owner_github_id, project.id, { readOnly: pullRequestNumber !== null }) : null;
             await buildInSandbox({
               repositoryUrl: "https://github.com/" + delivery.repository_full_name + ".git",
               revision: delivery.commit_sha,
@@ -236,7 +242,8 @@ async function processNextDelivery(): Promise<NextResponse> {
               decision,
               hasNpmLock: await hasPackageLock(siteRoot),
               destination: publishRoot,
-              buildEnv: await buildEnvForDelivery(pullRequestNumber, () => loadBuildEnv(project.owner_github_id, project.id)),
+              buildEnv,
+              ...(cacheKey && cacheStore ? { cache: { key: cacheKey, sourceRoot: siteRoot, store: cacheStore } } : {}),
             });
           } catch (error) {
             if (error instanceof SandboxBuildError) throw new Error(error.code);

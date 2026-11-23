@@ -7,6 +7,7 @@ import {
   cloudflarePagesDeploymentFailure,
   contentTypeFor,
   deployStaticDirectory,
+  forEachConcurrently,
   isValidPagesBranch,
   isValidPagesProjectName,
   pagesAssetHash,
@@ -212,5 +213,54 @@ test("refuses deployment URLs outside pages.dev", async () => {
       "/accounts/account-123/pages/projects/deplo-sites/deployments": () => new Response(JSON.stringify({ success: true, result: { id: "x", url: "https://evil.example.com" } })),
     });
     await assert.rejects(deployStaticDirectory(root, "site-demo", config, { fetcher }), /did not return a Pages deployment URL/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("runs work with bounded concurrency and stops after the first failure", async () => {
+  let running = 0;
+  let peak = 0;
+  const done: number[] = [];
+  await forEachConcurrently([1, 2, 3, 4, 5, 6, 7], 3, async (item) => {
+    running += 1; peak = Math.max(peak, running);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    running -= 1; done.push(item);
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(done.sort(), [1, 2, 3, 4, 5, 6, 7]);
+
+  const started: number[] = [];
+  await assert.rejects(forEachConcurrently([1, 2, 3, 4, 5, 6], 2, async (item) => {
+    started.push(item);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    if (item === 2) throw new Error("upload 2 failed");
+  }), /upload 2 failed/);
+  assert.ok(started.length < 6, "no new uploads start after a failure");
+  await forEachConcurrently([], 4, async () => { throw new Error("never called"); });
+});
+
+test("splits large sites into several uploads that run in parallel", async () => {
+  const root = await mkdtemp(join(tmpdir(), "deplo-pages-many-"));
+  try {
+    await writeFile(join(root, "index.html"), "<!doctype html><title>many</title>");
+    await mkdir(join(root, "assets"));
+    for (let index = 0; index < 700; index += 1) await writeFile(join(root, "assets", "f" + index + ".js"), "export const v = " + index + ";");
+    let inFlight = 0;
+    let peak = 0;
+    const { calls, fetcher } = fakeCloudflare();
+    const slowFetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith("/pages/assets/upload")) {
+        inFlight += 1; peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        calls.push({ url: String(input), method: "POST", authorization: "", body: JSON.parse(String(init?.body)) });
+        return new Response(JSON.stringify({ success: true, result: null }));
+      }
+      return fetcher(input, init);
+    }) as typeof fetch;
+    await deployStaticDirectory(root, "site-demo", config, { fetcher: slowFetcher });
+    const uploads = calls.filter((call) => call.url.endsWith("/pages/assets/upload"));
+    assert.equal(uploads.length, 3, "701 files split into buckets of at most 250");
+    assert.equal(uploads.reduce((sum, call) => sum + (call.body as unknown[]).length, 0), 701);
+    assert.ok(peak > 1, "uploads overlap");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

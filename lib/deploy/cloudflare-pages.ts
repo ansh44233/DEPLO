@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { blake3Hex } from "./blake3";
+import { wasmHasher, type WasmHasher } from "./blake3-wasm";
 
 export type CloudflarePagesCredentials = {
   accountId: string;
@@ -46,8 +47,11 @@ export function isValidPagesBranch(value: string): boolean {
 }
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
-const MAX_BUCKET_BYTES = 40 * 1024 * 1024;
-const MAX_BUCKET_FILES = 1_000;
+// Buckets stay well under the API limits (50 MiB / 5,000 files) so that a
+// typical site splits into several requests that can run at the same time.
+const MAX_BUCKET_BYTES = 10 * 1024 * 1024;
+const MAX_BUCKET_FILES = 250;
+const UPLOAD_CONCURRENCY = 4;
 const REQUEST_TIMEOUT_MS = 60_000;
 // Files Cloudflare Pages treats as configuration rather than assets.
 const ROOT_CONFIG_FILES = new Set(["_headers", "_redirects", "_routes.json", "_worker.js"]);
@@ -68,9 +72,15 @@ export function contentTypeFor(path: string): string {
   return CONTENT_TYPES[extname(path).slice(1).toLowerCase()] ?? "application/octet-stream";
 }
 
-/** Asset key used by Cloudflare Pages: BLAKE3(base64(content) + extension), first 32 hex chars. */
-export function pagesAssetHash(content: Uint8Array, path: string): string {
-  return blake3Hex(Buffer.from(content).toString("base64") + extname(path).slice(1)).slice(0, 32);
+/**
+ * Asset key used by Cloudflare Pages: BLAKE3(base64(content) + extension), first 32 hex chars.
+ * Uses the Rust/WebAssembly hasher when lib/deploy/blake3.wasm is present, and the
+ * JavaScript implementation otherwise; both produce the same key.
+ */
+export function pagesAssetHash(content: Uint8Array, path: string, hasher: WasmHasher | null = wasmHasher()): string {
+  const extension = extname(path).slice(1);
+  if (hasher) return Buffer.from(hasher.pagesAssetHash(content, extension)).toString("hex").slice(0, 32);
+  return blake3Hex(Buffer.from(content).toString("base64") + extension).slice(0, 32);
 }
 
 async function collectAssets(root: string): Promise<{ assets: PagesAsset[]; headers: Buffer | null; redirects: Buffer | null }> {
@@ -123,6 +133,23 @@ async function callApi<T>(fetcher: typeof fetch, step: string, path: string, aut
   return payload.result as T;
 }
 
+/**
+ * Runs `task` over `items` with at most `limit` in flight. Stops starting new
+ * work after the first failure and rethrows it once running tasks settle.
+ */
+export async function forEachConcurrently<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failure: { error: unknown } | null = null;
+  const worker = async () => {
+    while (!failure && next < items.length) {
+      const item = items[next++];
+      try { await task(item); } catch (error) { failure ??= { error }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  if (failure) throw (failure as { error: unknown }).error;
+}
+
 function buckets(assets: PagesAsset[]): PagesAsset[][] {
   const result: PagesAsset[][] = [];
   let current: PagesAsset[] = [];
@@ -168,7 +195,7 @@ export async function deployStaticDirectory(
     }));
     const seen = new Set<string>();
     const toUpload = assets.filter((asset) => missing.has(asset.hash) && !seen.has(asset.hash) && seen.add(asset.hash));
-    for (const bucket of buckets(toUpload)) {
+    await forEachConcurrently(buckets(toUpload), UPLOAD_CONCURRENCY, async (bucket) => {
       const payload = await Promise.all(bucket.map(async (asset) => ({
         key: asset.hash,
         value: (await readFile(asset.absolutePath)).toString("base64"),
@@ -176,7 +203,7 @@ export async function deployStaticDirectory(
         base64: true,
       })));
       await callApi(fetcher, "asset upload", "/pages/assets/upload", jwt, { method: "POST", body: JSON.stringify(payload) });
-    }
+    });
     await callApi(fetcher, "asset registration", "/pages/assets/upsert-hashes", jwt, {
       method: "POST", body: JSON.stringify({ hashes: uniqueHashes }),
     });

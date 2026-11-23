@@ -4,6 +4,11 @@ All notable changes to DEPLO are documented here.
 
 ## Unreleased
 
+### Performance
+- Dependency cache for framework builds: after a successful build DEPLO snapshots the Vercel Sandbox with only `node_modules` kept, and the next build whose dependencies and lockfiles are unchanged starts from that snapshot and skips the install step. Monorepos are not cached, pull request previews read the cache but never write it, and a build that fails on the cache is retried once from a clean install. Requires migration `0015_project_build_caches.sql`; set `DEPLO_DISABLE_BUILD_CACHE=1` to turn it off.
+- Cloudflare Pages uploads run four requests at a time over smaller buckets instead of one large request after another.
+- Optional Rust BLAKE3 hasher compiled to WebAssembly (`native/blake3-wasm`, built with `npm run build:wasm` into `lib/deploy/blake3.wasm`). It base64-encodes and hashes each asset in one pass; the JavaScript implementation remains the fallback and CI checks that both produce identical keys.
+
 ### Added
 - Per-project environment variables: encrypted with AES-256-GCM (per-project derived key), managed in a new Environment tab (add, edit, reveal, paste a .env), optional at import time, and passed to install/build steps. Values are redacted from build logs. Requires migration `0013_project_environment_variables.sql`.
 - GitHub repository picker: signed-in users choose from their own repositories (including private ones) with search, instead of pasting a URL. "Deploy" imports and deploys in one step.

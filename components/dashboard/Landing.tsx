@@ -1,5 +1,6 @@
 import { Cpu, GitBranch, Github, Globe, KeyRound, RotateCcw, ShieldCheck } from "lucide-react";
 import type { Setter, Modal } from "@/lib/dashboard/types";
+import { DeployDemo, EmberField, Sparks } from "@/app/fx";
 
 const FEATURES = [
   { icon: GitBranch, title: "Git, ZIP or HTML", text: "Pick a repo from your GitHub, drop a ZIP, or paste a single page. Private repos work once you sign in." },
@@ -17,30 +18,12 @@ const STEPS = [
   { title: "Ship", text: "Hash and upload only changed files, then go live on the edge." },
 ];
 
-/** A decorative ASCII field (rings around the mark), computed once from a fixed formula. */
-function AsciiField() {
-  const ramp = " .:-=+*xX#";
-  const rows: string[] = [];
-  for (let y = 0; y < 22; y += 1) {
-    let line = "";
-    for (let x = 0; x < 132; x += 1) {
-      const dx = (x - 66) / 66;
-      const dy = (y - 9) / 9;
-      const r = Math.sqrt(dx * dx * 1.0 + dy * dy * 0.9);
-      const wave = Math.sin(r * 11 - Math.atan2(dy, dx) * 2) * 0.5 + 0.5;
-      const fade = Math.max(0, 1 - Math.abs(r - 0.62) * 2.2) * (r < 0.18 ? 0 : 1);
-      line += ramp[Math.min(ramp.length - 1, Math.floor(wave * fade * ramp.length))];
-    }
-    rows.push(line);
-  }
-  return <pre className="ascii" aria-hidden="true">{rows.join("\n")}</pre>;
-}
-
 export function Landing({ setModal }: { setModal: Setter<Modal> }) {
   return (
     <>
       <section className="hero">
-        <AsciiField />
+        <EmberField />
+        <Sparks />
         <img className="hero-mark" src="/deplo-mark.svg" alt="" width={56} height={56} />
         <p className="kicker">Open source · Builds in a microVM · Yours to host</p>
         <h1>Your code, <em>live</em> in a minute.</h1>
@@ -51,6 +34,7 @@ export function Landing({ setModal }: { setModal: Setter<Modal> }) {
           <button className="btn btn-secondary btn-lg" onClick={() => setModal("github")}>Try without signing in</button>
           <a className="btn btn-secondary btn-lg" href="https://github.com/ansh44233/DEPLO" target="_blank" rel="noreferrer">Read the source</a>
         </div>
+        <DeployDemo />
       </section>
 
       <section className="block">

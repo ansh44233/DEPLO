@@ -25,6 +25,7 @@ repository inventory is:
 | 0012 | `0012_recovery_inventory_nonce_retention.sql` | Bounded nonce-retention cleanup RPC |
 | 0013 | `0013_project_environment_variables.sql` | Encrypted per-project build environment variables |
 | 0014 | `0014_pull_request_preview_deliveries.sql` | Pull request number on webhook deliveries, for preview deploys |
+| 0015 | `0015_project_build_caches.sql` | Dependency-cache snapshot per project, so unchanged dependencies are not reinstalled |
 
 Do not skip a migration or apply 0011/0012 ahead of 0001–0010. If the remote
 database has a different migration history, stop and reconcile it before
@@ -68,7 +69,7 @@ supabase migration list
 ```
 
 The final migration list should show the repository migrations through
-`0014_pull_request_preview_deliveries.sql` as applied to the intended
+`0015_project_build_caches.sql` as applied to the intended
 project. Save the command output and deployment timestamp in the team's
 operational record. Do not include secrets in that record.
 
