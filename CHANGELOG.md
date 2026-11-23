@@ -4,7 +4,14 @@ All notable changes to DEPLO are documented here.
 
 ## Unreleased
 
+### Security
+- Fixed all 6 known vulnerabilities in dependencies (1 moderate, 5 high; `npm audit` now reports none). `@vercel/sandbox`, `@vercel/oidc` and `@vercel/cli-config` were flagged only for an old `zod` (memory exhaustion on oversized collections), and Next.js for the PostCSS it bundles (source-map file disclosure and `</style>` XSS in CSS handling). `package.json` now has `overrides` for `zod` (`^4.6.7`) and `postcss` (`^8.5.33`); the PostCSS one avoids a Next.js 15 to 16 major upgrade. Remove each override once its upstream package ships the fix.
+- Committed `package-lock.json` and switched CI to `npm ci`, so installs are reproducible. CI now fails on any high-severity production advisory.
+- GitHub App installation tokens are minted for the single repository being built, instead of every repository in the installation.
+- Pull request previews are built without the project's saved build variables.
+
 ### Added
+- Preview deployments for pull requests: opened, reopened and updated same-repository pull requests are built and published to `https://pr-<number>.<project>.pages.dev`; production is untouched and fork pull requests are ignored. Requires migration `0014_pull_request_preview_deliveries.sql`, the **Pull requests: Read-only** GitHub App permission and the **Pull request** event. See [GitHub App setup](docs/github-app.md#pull-request-previews).
 - Per-project environment variables: encrypted with AES-256-GCM (per-project derived key), managed in a new Environment tab (add, edit, reveal, paste a .env), optional at import time, and passed to install/build steps. Values are redacted from build logs. Requires migration `0013_project_environment_variables.sql`.
 - GitHub repository picker: signed-in users choose from their own repositories (including private ones) with search, instead of pasting a URL. "Deploy" imports and deploys in one step.
 - ZIP uploads: a single wrapping folder is detected automatically, `__MACOSX` metadata is dropped, source ZIPs of Vite/React/CRA/static Next.js projects are built in Vercel Sandbox, and files over the host's request limit upload directly to a private Supabase Storage bucket through a one-time signed URL (up to 25 MB).

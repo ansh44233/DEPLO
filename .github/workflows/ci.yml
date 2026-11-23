@@ -21,7 +21,9 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
       - name: Validate migration inventory
         run: npm run check:migrations
       - name: Unit tests
