@@ -445,7 +445,7 @@ export default function Home() {
 
   useEffect(() => {
     let dismissed = false;
-    try { dismissed = window.localStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
+    try { dismissed = window.sessionStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
     if (dismissed) return;
     if (!window.matchMedia("(max-width: 640px)").matches) { setCommunityHidden(false); return; }
     // On phones the compact strip arrives a moment after load, or as soon as the visitor scrolls.
@@ -486,7 +486,7 @@ export default function Home() {
   });
   const paletteMatches = filterPaletteItems(paletteItems, paletteQuery);
   const runPalette = (item: PaletteItem | undefined) => { if (!item) return; setPaletteOpen(false); item.run(); };
-  const dismissCommunity = () => { setCommunityHidden(true); try { window.localStorage.setItem("deplo:community-dismissed", "1"); } catch { /* private mode */ } };
+  const dismissCommunity = () => { setCommunityHidden(true); try { window.sessionStorage.setItem("deplo:community-dismissed", "1"); } catch { /* private mode */ } };
 
   return (
     <div className="shell">
