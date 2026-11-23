@@ -1,7 +1,7 @@
 import { skipWithoutSymlinks } from "../helpers/platform";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupStaleWorkspaces, DEFAULT_WORKSPACE_RETENTION_MS } from "../../services/build-runner/src/workspace-janitor";

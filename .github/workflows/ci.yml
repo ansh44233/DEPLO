@@ -25,6 +25,8 @@ jobs:
         run: npm ci
       - name: Validate migration inventory
         run: npm run check:migrations
+      - name: No high-severity advisories in production dependencies
+        run: npm run audit:prod
       - name: Lint
         run: npm run lint
       - name: Unit tests

@@ -1,4 +1,4 @@
-import type { Project, ProjectTab, Setter } from "@/lib/dashboard/types";
+import type { ProjectTab, Setter } from "@/lib/dashboard/types";
 import { PROJECT_TABS } from "@/lib/dashboard/constants";
 
 export function ProjectTabsNav({ projectTab, setProjectTab, hasActiveBuildJob, buildsAvailable = true }: { projectTab: ProjectTab; setProjectTab: Setter<ProjectTab>; hasActiveBuildJob: boolean; buildsAvailable?: boolean }) {
