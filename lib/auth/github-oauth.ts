@@ -33,3 +33,33 @@ export async function exchangeGitHubCode(
   if (typeof data.access_token !== "string" || !data.access_token) return { error: "token_missing" };
   return { accessToken: data.access_token };
 }
+
+/**
+ * Revokes one OAuth access token at GitHub (used at sign-out), so a copied
+ * token cookie stops working too. Other sign-ins of the same user keep theirs.
+ */
+export async function revokeGitHubToken(
+  input: { clientId: string; clientSecret: string; accessToken: string },
+  fetcher: typeof fetch = fetch,
+): Promise<boolean> {
+  if (!input.clientId || !input.clientSecret || !input.accessToken) return false;
+  try {
+    const response = await fetcher("https://api.github.com/applications/" + encodeURIComponent(input.clientId) + "/token", {
+      method: "DELETE",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: "Basic " + Buffer.from(input.clientId + ":" + input.clientSecret).toString("base64"),
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "DEPLO",
+      },
+      body: JSON.stringify({ access_token: input.accessToken }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    // 204: revoked. 404: already invalid. Either way the token no longer works.
+    return response.status === 204 || response.status === 404;
+  } catch {
+    return false;
+  }
+}

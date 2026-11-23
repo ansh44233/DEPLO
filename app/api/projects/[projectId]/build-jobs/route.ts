@@ -4,6 +4,8 @@ import { verifySessionToken } from "@/lib/auth/session";
 import { getOwnedProjectById, ProjectStoreError } from "@/lib/db/supabase-projects";
 import { BuildJobStoreError, createOwnedBuildJob, listOwnedBuildJobs, type BuildFramework, type BuildPackageManager } from "@/lib/db/supabase-build-jobs";
 
+import { claimDeploySlot, rateLimitMessage } from "@/lib/db/supabase-deploy-rate-limit";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ projectId: string }> };
@@ -58,6 +60,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const project = await getOwnedProjectById(user.id, projectId);
     if (!project) return fail("Project not found in your account.", 404);
     if (project.source_type !== "github" || !project.repository_url || !project.branch) return fail("Build jobs currently require a saved GitHub project.", 422);
+    const slot = await claimDeploySlot(user.id);
+    if (!slot.allowed) {
+      return NextResponse.json({ error: rateLimitMessage(slot) }, { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(slot.retryAfterSeconds) } });
+    }
     const job = await createOwnedBuildJob({
       project_id: project.id, owner_github_id: user.id,
       source_commit_sha: input.sourceCommitSha, framework,

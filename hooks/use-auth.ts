@@ -20,6 +20,7 @@ export function useAuth({ setNotice }: { setNotice: (message: string) => void })
     const authResult = new URLSearchParams(window.location.search).get("auth");
     if (authResult === "success") setNotice("Signed in with GitHub. Your saved projects are loading.");
     if (authResult === "error") setNotice("GitHub sign-in could not be completed. Check OAuth configuration and try again.");
+    if (authResult === "denied") setNotice("This DEPLO instance is private. Ask its owner to add your GitHub account.");
     const appResult = new URLSearchParams(window.location.search).get("github_app");
     if (appResult === "connected") setNotice("GitHub App connected. Private repository push deployments are enabled for repositories selected in the installation.");
     if (appResult === "error") setNotice("GitHub App installation could not be linked. Check the app setup URL, private key, and database migration.");

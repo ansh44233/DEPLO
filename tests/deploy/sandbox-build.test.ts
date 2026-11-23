@@ -197,3 +197,25 @@ test("builds uploaded files (no git) by copying the source but not node_modules 
     assert.equal(await readFile(join(dest, "index.html"), "utf8"), "built");
   } finally { await rm(dest, { recursive: true, force: true }); }
 });
+
+test("a local checkout is copied in with executable bits and no clone or token", async () => {
+  const src = await tempDir("deplo-checkout-src-");
+  await writeFile(join(src, "package.json"), "{}");
+  await mkdir(join(src, "build")); await writeFile(join(src, "build", "config.js"), "kept");
+  await writeFile(join(src, "build.sh"), "#!/bin/sh\necho hi", { mode: 0o700 });
+  const tarball = await makeTar(async (dir) => { await writeFile(join(dir, "index.html"), "built"); });
+  const written: { path: string; content: string }[] = [];
+  const fake = fakeSandbox(tarball);
+  const factory: SandboxFactory = async (options) => {
+    const instance = await fake.factory(options);
+    return { ...instance, async writeFiles(files) { written.push(...files.map((file) => ({ path: file.path, content: file.content.toString() }))); } };
+  };
+  const dest = await tempDir("deplo-checkout-out-");
+  try {
+    await buildInSandbox({ checkoutRoot: src, accessToken: null, decision: viteDecision, hasNpmLock: false, destination: dest, factory });
+    assert.equal(fake.created?.source, undefined, "nothing is cloned");
+    assert.deepEqual(written.map((file) => file.path).filter((path) => !path.startsWith(".deplo")).sort(), ["build.sh", "build/config.js", "package.json"]);
+    assert.equal(written.find((file) => file.path === ".deplo-executables")?.content, "build.sh\0");
+    assert.match(fake.calls[0].script, /xargs -0 chmod \+x -- < \.deplo-executables/);
+  } finally { for (const dir of [src, dest]) await rm(dir, { recursive: true, force: true }); }
+});
