@@ -10,7 +10,7 @@ test("repository migration inventory is contiguous and correctly named", () => {
   const result = validateMigrationInventory(files);
 
   assert.equal(result.valid, true, result.errors.join("\n"));
-  assert.equal(result.ordered.length, 17);
+  assert.equal(result.ordered.length, 18);
   assert.equal(result.ordered[0], "0001_account_projects.sql");
   assert.equal(result.ordered[11], "0012_recovery_inventory_nonce_retention.sql");
   assert.equal(result.ordered[12], "0013_project_environment_variables.sql");
@@ -18,6 +18,7 @@ test("repository migration inventory is contiguous and correctly named", () => {
   assert.equal(result.ordered[14], "0015_project_build_caches.sql");
   assert.equal(result.ordered[15], "0016_revoked_sessions.sql");
   assert.equal(result.ordered[16], "0017_deploy_rate_limits.sql");
+  assert.equal(result.ordered[17], "0018_durable_supervisor_event_journal.sql");
 });
 
 test("rejects an empty inventory and a sequence that does not start at 0001", () => {
