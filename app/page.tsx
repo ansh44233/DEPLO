@@ -920,7 +920,18 @@ export default function Home() {
   }, [projectTab, selected.id, signedInUser, envLoadedFor]);
 
   useEffect(() => {
-    try { setCommunityHidden(window.localStorage.getItem("deplo:community-dismissed") === "1"); } catch { setCommunityHidden(false); }
+    let dismissed = false;
+    try { dismissed = window.localStorage.getItem("deplo:community-dismissed") === "1"; } catch { /* private mode */ }
+    if (dismissed) return;
+    // On phones the card would sit on top of the hero, so it waits until the visitor has scrolled past it.
+    if (!window.matchMedia("(max-width: 640px)").matches) { setCommunityHidden(false); return; }
+    const onScroll = () => {
+      if (window.scrollY < 560) return;
+      setCommunityHidden(false);
+      window.removeEventListener("scroll", onScroll);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   useEffect(() => {
@@ -1010,7 +1021,7 @@ export default function Home() {
               {signedInUser.avatarUrl ? <img className="avatar" src={signedInUser.avatarUrl} alt="" /> : <span className="avatar avatar-fallback">{signedInUser.login[0]?.toUpperCase()}</span>}
               {signedInUser.login}
             </button>
-          ) : <span className="crumb muted">Guest</span>}
+          ) : <span className="crumb crumb-guest muted">Guest</span>}
           {activeNav === "project" && selected.id !== undefined && <>
             <span className="crumb-sep" aria-hidden="true">/</span>
             <span className="crumb crumb-current">{selected.name}</span>
@@ -1030,7 +1041,7 @@ export default function Home() {
           </a>}
           {authLoading ? null : signedInUser
             ? <button className="btn btn-ghost btn-sm" onClick={() => void signOut()}>Sign out</button>
-            : <a className="btn btn-primary btn-sm" href="/api/auth/github"><Github size={15} /> Sign in with GitHub</a>}
+            : <a className="btn btn-primary btn-sm" href="/api/auth/github"><Github size={15} /><span className="label-long">Sign in with GitHub</span><span className="label-short">Sign in</span></a>}
         </div>
       </header>
 
