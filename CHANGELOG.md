@@ -4,6 +4,16 @@ All notable changes to DEPLO are documented here.
 
 ## Unreleased
 
+### Audit fixes
+- `package-lock.json` is committed and CI installs with `npm ci`; `postcss` and `zod` are overridden to patched versions, so `npm audit` reports 0 production advisories (it reported 6 high/moderate). CI fails on new high-severity advisories, and Dependabot opens weekly update PRs.
+- Two pushes that build at the same time can no longer publish the older commit: a worker skips publishing when a newer delivery for the same repository and branch (or pull request) exists, and records it as `superseded`.
+- The Builds tab and the build-jobs API appear only when a build runner is configured; before, every project could queue jobs that always failed and used a deploy slot.
+- Content Security Policy uses a per-request nonce with `'strict-dynamic'` instead of `'unsafe-inline'` scripts; pages now render per request so every script carries the nonce.
+- Signed-out callers of `/api/deploy/status` no longer see which server settings are missing.
+- The Rust BLAKE3 hasher is built and committed (`lib/deploy/blake3.wasm`); CI checks it against the JavaScript implementation.
+- ESLint (`next/core-web-vitals`, `next/typescript`) runs in CI, and Playwright browser tests (desktop and mobile Chromium) check the page for console errors, CSP violations, security headers, CSRF refusal, auth on APIs and horizontal overflow.
+- Optional GitHub Actions workflow drains the worker queues every 10 minutes and opens an issue when DEPLO is down.
+
 ### Security
 - "Sign in with GitHub" can use the GitHub App's client credentials instead of a classic OAuth App. DEPLO then asks for no scopes: the user's token can only read repositories where the App is installed (instead of `repo`, which allows reading and writing every repository), and it expires after 8 hours. Expiring tokens are refreshed in middleware, with concurrent requests sharing one refresh. The App is detected from an `Iv…` client ID; `DEPLO_GITHUB_SIGN_IN` overrides it. The repository picker explains that only repositories where the App is installed appear, with a link to add more.
 

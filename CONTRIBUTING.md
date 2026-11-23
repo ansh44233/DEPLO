@@ -12,9 +12,10 @@ Thanks for your interest in contributing.
 
 1. Install Node.js 20 or newer.
 2. Clone the repository.
-3. Install dependencies with `npm install`.
+3. Install dependencies with `npm ci` (exactly the versions in `package-lock.json`).
 4. Start the development server with `npm run dev`.
-5. Run `npm run typecheck` and `npm run build` before submitting.
+5. Before submitting, run `npm run lint`, `npm test`, `npm run typecheck` and `npm run build`; run `npx playwright install chromium` once, then `npm run test:e2e`.
+6. Changed `native/blake3-wasm`? Run `npm run build:wasm` (needs `rustup target add wasm32-unknown-unknown`) and commit `lib/deploy/blake3.wasm`.
 
 ## Pull requests
 
