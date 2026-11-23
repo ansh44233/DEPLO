@@ -1,3 +1,4 @@
+import { skipWithoutSymlinks } from "../helpers/platform";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { lstat, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
@@ -34,7 +35,7 @@ test("workspace manager creates private separated directories and removes them i
   } finally { await rm(parent, { recursive: true, force: true }); }
 });
 
-test("workspace manager refuses a symlink workspace root", async () => {
+test("workspace manager refuses a symlink workspace root", { skip: skipWithoutSymlinks }, async () => {
   const parent = await mkdtemp(join(tmpdir(), "deplo-workspace-link-"));
   const actual = join(parent, "actual");
   const linked = join(parent, "linked");
