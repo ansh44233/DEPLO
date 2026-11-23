@@ -70,12 +70,19 @@ async function call(url: string, init: RequestInit, cfg: ReturnType<typeof confi
   } catch {
     throw new EnvVarError("Project storage is temporarily unavailable.", 502);
   }
-  if (response.status === 404 || response.status === 400) {
-    const text = await response.text().catch(() => "");
-    if (/project_env_vars/.test(text)) throw new EnvVarError("Environment variables need database migration 0013. Run supabase/migrations/0013_project_environment_variables.sql in Supabase.", 503);
+  if (response.ok) return response;
+  const text = await response.clone().text().catch(() => "");
+  if ((response.status === 404 || response.status === 400) && /project_env_vars/.test(text) && /(PGRST205|42P01|does not exist|Could not find)/i.test(text)) {
+    throw new EnvVarError("Environment variables need database migration 0013. Run supabase/migrations/0013_project_environment_variables.sql in Supabase.", 503);
   }
-  if (!response.ok) throw new EnvVarError("Environment variables could not be saved.", 502);
-  return response;
+  // Supabase explains what went wrong (missing column, bad key, constraint); pass that along so it can be fixed.
+  let reason = "";
+  try {
+    const body = JSON.parse(text) as { code?: string; message?: string };
+    reason = [body.code, body.message].filter(Boolean).join(": ").slice(0, 200);
+  } catch { /* not JSON */ }
+  console.error("[env-vars] Supabase " + response.status + (reason ? " " + reason : ""));
+  throw new EnvVarError("Environment variables could not be saved (storage said " + response.status + (reason ? ", " + reason : "") + ").", 502);
 }
 
 export async function listProjectEnvVars(ownerGithubId: number, projectId: string, env: Env = process.env, fetcher: typeof fetch = fetch): Promise<EnvVar[]> {

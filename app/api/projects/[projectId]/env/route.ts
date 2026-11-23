@@ -24,6 +24,7 @@ async function owner(request: NextRequest, context: RouteContext) {
 
 function handle(error: unknown) {
   if (error instanceof EnvVarError || error instanceof ProjectStoreError) return errorResponse(error.message, error.status);
+  console.error("[env-vars] unexpected", error instanceof Error ? error.message : error);
   return errorResponse("Environment variables could not be loaded.", 502);
 }
 
